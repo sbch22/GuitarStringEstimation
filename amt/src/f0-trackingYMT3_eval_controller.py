@@ -11,9 +11,9 @@ modelScores = {}
 for model_name in modelNames:
     print(f"Starting evaluation for model: {model_name}")
 
-    # Starten der eval.py mit Übergabe des Modellnamens
+    # Starten der f0-trackingYMT3_eval.py mit Übergabe des Modellnamens
     result = subprocess.run(
-        ["python3", "eval.py", model_name],
+        ["python3", "f0-trackingYMT3_eval.py", model_name],
         capture_output=True,
         text=True
     )

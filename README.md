@@ -35,6 +35,10 @@ python install_dataset.py
 ```
 Follow the instructions in the CLI. For this project, only the GuitarSet dataset is needed, no checkpoints.
 
+6. Extract note information the dataset:
+```bash
+python extract_dataset.py
+```
 
 ## Dataset
 
@@ -47,3 +51,41 @@ This project uses the [GuitarSet Dataset](https://guitarset.weebly.com/), which 
 
 ## Project Structure
 
+
+## Evaluate accuracy of YMT3
+To run the evaluation script of YMT3, please run controller for said script. The different models are calculated on the full dataset (could be specified in script) and compares individual models.
+
+Note that these are some intense calculations and should be performed on GPU-accelerated machine.
+```bash
+python f0-trackingYMT3_eval_controller.py
+```
+
+
+
+## Calculate Beta-Distributions
+Calculates the inharmonicity coefficient (beta) distributions over the debleeded hex signals and writes them temporarily as betas.json
+
+Note that these are some intense calculations and should be performed on GPU-accelerated machine.
+```bash
+python betaDistributions.py
+```
+
+## Perform statistical analysis on Beta-Distributions
+Performs simple statistical tests on Beta-Distributions and plots Histograms from 'betas.json'. This is not neccessary for the workflow of the algorithm but can give further insight.
+
+```bash
+python betaDistributions_stat-test.py
+```
+
+## Evaluate Beta-Distributions algorithm
+Evaluates the algorithm for finding the Beta-Distributions from GuitarSet.
+```bash
+python betaDistributions_eval.py
+```
+
+
+# Run Guitar String Estimation
+Calculates guitar string estimations for each note in GuitarSet (mono-pickup), collects the results and gives feedback on accuracy.
+```bash
+python GuitarStringEstimator.py
+```

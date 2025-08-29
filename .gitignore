@@ -8,8 +8,7 @@ amt/logs/2024/notask_all_cross_v6_xk2_amp0811_gm_ext_plus_nops_b72
 .idea/
 LICENSE
 
-amt/src/partial_betas_local_18.02.25_quantiloutliers_filtered.json
-amt/src/betas_Server_calc1.json
+amt/src/betas.json
 
 
 .venv1/

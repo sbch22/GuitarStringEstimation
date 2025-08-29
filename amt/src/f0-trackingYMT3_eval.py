@@ -1,5 +1,3 @@
-#%%
-#%cd /content/amt/src
 import os
 import sys
 sys.path.append(os.path.abspath(''))
@@ -10,8 +8,13 @@ sys.path.append(os.path.abspath(''))
 from collections import Counter
 import argparse
 import torch
-import torchaudio
+#import torchaudio
 import numpy as np
+#import gc
+
+import sys
+import json
+
 
 from model.init_train import initialize_trainer, update_config
 from utils.task_manager import TaskManager
@@ -28,10 +31,10 @@ from model.ymt3 import YourMT3
 # @title GradIO helper
 #import os
 #import subprocess
-import glob
+#import glob
 from typing import Tuple, Dict, Literal
-from ctypes import ArgumentError
-#from google.colab import output
+#from ctypes import ArgumentError
+#from google.colab import outputS
 
 #from pytube import YouTube
 #import gradio as gr
@@ -244,12 +247,101 @@ def process_audio(model, audio_filepath):
     assert os.path.exists(midifile), f"File does not exist: {midifile}"
     return midifile
 
+def process_audio_notes(model, audio_filepath):
+    if audio_filepath is None:
+        return None
+    audio_info = prepare_media(audio_filepath, source_type='audio_filepath')
+    print(audio_info)
+    pred_notes = transcribe_notes(model, audio_info)
+
+    # return policy
+    return pred_notes
 
 
-# %% @title Load Checkpoint
+def transcribe_notes(model, audio_info):
+    t = Timer()
+
+    # Converting Audio
+    t.start()
+    audio, sr = torchaudio.load(uri=audio_info['filepath'])
+    audio = torch.mean(audio, dim=0).unsqueeze(0)
+    audio = torchaudio.functional.resample(audio, sr, model.audio_cfg['sample_rate'])
+    audio_segments = slice_padded_array(audio, model.audio_cfg['input_frames'], model.audio_cfg['input_frames'])
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    audio_segments = torch.from_numpy(audio_segments.astype('float32')).to(device).unsqueeze(1) # (n_seg, 1, seg_sz)
+    t.stop(); t.print_elapsed_time("converting audio");
+
+    # Inference
+    t.start()
+    pred_token_arr, _ = model.inference_file(bsz=8, audio_segments=audio_segments)
+    t.stop(); t.print_elapsed_time("model inference");
+
+    # Post-processing
+    t.start()
+    num_channels = model.task_manager.num_decoding_channels
+    n_items = audio_segments.shape[0]
+    start_secs_file = [model.audio_cfg['input_frames'] * i / model.audio_cfg['sample_rate'] for i in range(n_items)]
+    pred_notes_in_file = []
+    n_err_cnt = Counter()
+    for ch in range(num_channels):
+        pred_token_arr_ch = [arr[:, ch, :] for arr in pred_token_arr]  # (B, L)
+        zipped_note_events_and_tie, list_events, ne_err_cnt = model.task_manager.detokenize_list_batches(
+            pred_token_arr_ch, start_secs_file, return_events=True)
+        pred_notes_ch, n_err_cnt_ch = merge_zipped_note_events_and_ties_to_notes(zipped_note_events_and_tie)
+        pred_notes_in_file.append(pred_notes_ch)
+        n_err_cnt += n_err_cnt_ch
+    pred_notes = mix_notes(pred_notes_in_file)  # This is the mixed notes from all channels
+
+    return pred_notes
+
+
+
+
+def extract_GT(audio_filepath):
+    # Root-Ordner extrahieren
+    audio_dir = os.path.dirname(os.path.dirname(audio_filepath))
+    annotations_dir = os.path.join(audio_dir, "annotation")
+
+    # Audio-Dateiname extrahieren und umwandeln
+    base_name, _ = os.path.splitext(os.path.basename(audio_filepath))
+    # filename = base_name.replace("_mic", "")
+    filename = base_name.replace("_mix", "")
+    annotation_filename = f"{filename}_notes.npy" # Notes-Data
+    annotation_filepath = os.path.join(annotations_dir, annotation_filename)
+
+    # Existenzprüfung
+    if not os.path.exists(annotation_filepath):
+        print(f"Warnung: Annotation-Datei '{annotation_filepath}' existiert nicht.")
+        return None
+
+    assert os.path.exists(annotation_filepath)
+    # load annotation
+    GT_array = np.load(annotation_filepath, allow_pickle=True)
+
+    data = GT_array.item()  # `.item()` gibt das einzelne Objekt im Array zurück
+    # Zugriff auf 'notes'
+    notes = data['notes']
+    return notes
+
+
+
+
+
+
+
+# Load Checkpoint
 def main():
-    model_name = 'YMT3+' # @param ["YMT3+", "YPTF+Single (noPS)", "YPTF+Multi (PS)", "YPTF.MoE+Multi (noPS)", "YPTF.MoE+Multi (PS)"]
-    precision = '32' # @param ["32", "bf16-mixed", "16"]
+    # Modellnamen aus Argumenten übernehmen
+    if len(sys.argv) < 2:
+        raise ValueError("Model name not provided. Please pass the model name as an argument.")
+
+    model_name = sys.argv[1]
+    print(f"Running evaluation for model: {model_name}")
+
+    #model_name = "YMT3+" # @param [YMT3+", "YPTF+Single (noPS)", "YPTF+Multi (PS)", "YPTF.MoE+Multi (noPS)", "YPTF.MoE+Multi (PS)"]
+    # do I need to vary the precision??
+
+    precision = 'bf16-mixed' # @param ["32", "bf16-mixed", "16"]
     project = '2024'
 
     if model_name == "YMT3+":
@@ -279,39 +371,135 @@ def main():
     else:
         raise ValueError(model_name)
 
-    # load npy file
 
 
 
     # Extension
     model = load_model_checkpoint(args=args)
 
-    #%% open audio and transcribe
-    print(f"Current working directory: {os.getcwd()}")
-    audio_filepath = '../content/Metallica-Stairway_to_heaven.wav'
+    # open audio and transcribe
+    print(f"Current working directory: {os.getcwd()}") # is src folder
+    audio_directory = '../../data/guitarset_yourmt3_16k/audio_mono-pickup_mix/'
+    # audio_directory = '../../data/guitarset_yourmt3_16k/audio_mono-mic/'
+
+    ''' 
+    For other data-subsets the functions extraxtGT and transcribe_notes have to be adjusted accordingly
+    '''
 
 
-    # Midi Filepath midi_file
-    midi_file = process_audio(model ,audio_filepath)
+    # tolreance onset & offset
+    delta = 0.05 #50 ms
+    onsetF1_list = []
+
+    # Progress of calculation
+    i = 0
+    # fileListLength = len(os.listdir(audio_directory))
+
+
+    for file in os.listdir(audio_directory):
+        if "pshift" not in file:
+            filename = os.fsdecode(file)
+            audio_filepath = os.path.join(audio_directory, filename)
+
+            # calculate notefile with modified process_audio and transcribe
+            pred_notes = process_audio_notes(model, audio_filepath)
+            GT_notes = extract_GT(audio_filepath)
+
+            #Eval notes aufrufen
+            resultsOnsetF1 = evalOnsetF1(delta, pred_notes, GT_notes)
+
+            print(resultsOnsetF1)
+
+            # Ergebnisse speichern
+            onsetF1_list.append({
+                'Precision': resultsOnsetF1['Precision'],
+                'Recall': resultsOnsetF1['Recall'],
+                'F-Score': resultsOnsetF1['F-Score']
+            })
+
+            i += 1
+            # progress = round(100 * i/fileListLength, 2)
+
+            # print("Progress:", progress, "%")
+
+            # for local testing
+            # if i == 3:
+            #     break
+
+    mean_precision = np.mean([res['Precision'] for res in onsetF1_list])
+    mean_recall = np.mean([res['Recall'] for res in onsetF1_list])
+    mean_f_score = np.mean([res['F-Score'] for res in onsetF1_list])
+
+    print(f"\n### AVERAGE METRICS, Model Name: {model_name} ###")
+    print(f"Average Precision: {round(mean_precision, 2)}%")
+    print(f"Average Recall: {round(mean_recall, 2)}%")
+    print(f"Average F-Score: {round(mean_f_score, 2)}%")
+
+    # save model scores
+    result = {
+        'Precision': round(mean_precision, 4),
+        'Recall': round(mean_recall, 4),
+        'F-Score': round(mean_f_score, 4)
+    }
+
+    # Ergebnisse als JSON-Datei speichern
+    output_file = f"results_{model_name.replace(' ', '_')}.json"
+    with open(output_file, 'w') as f:
+        json.dump(result, f)
+
+    print(f"Results for {model_name} saved to {output_file}.")
 
 
 
-    # Loop through files and folders
-
-        # Scan  for illegal filenames and resolve
-
-        # Calculate System output, discard everything non guitar.
-
-        # Get transcription GT from XML, Für Guitar Set immer nur eine Note
-
-        # Calculate if Hit or Miss
-
-        # Add to statistic
 
 
-    # Vielleicht auch umsetzen als
-    # Evaluate function: Calculate Scores of transcription for a sequence of midi notes -> works for custom guitar and others
 
+def evalOnsetF1(delta, pred_notes, GT_notes):
+
+    ref_notes = [(note.onset, note.pitch, note.is_drum, note.program) for note in GT_notes]  # Ground Truth (Onset, Pitch)
+    pred_notes = [(note.onset, note.pitch, note.is_drum, note.program) for note in pred_notes]  # Predicted (Onset, Pitch)
+
+    TP = np.zeros(len(ref_notes))  # True Positives
+    FN = np.zeros(len(ref_notes))  # False Negatives
+
+
+
+    # Überprüfen von Ground Truth Noten
+    for i, (ref_onset, ref_pitch, ref_isdrum, ref_program) in enumerate(ref_notes):
+        # Berechne Differenzen für alle vorhergesagten Noten
+
+        '''
+        Currently only testing for instrument channel 24 (guitar)
+        '''
+        temp = [(abs(ref_onset - pred_onset), pred_pitch == ref_pitch, pred_isdrum == False, pred_program==24)
+                for pred_onset, pred_pitch, pred_isdrum, pred_program in pred_notes]
+
+        # Prüfen, ob eine Note innerhalb der Toleranz liegt und der Pitch übereinstimmt
+        if any(t[0] <= delta and t[1] and t[2] and t[3] for t in temp):
+            TP[i] = 1
+        else:
+            FN[i] = 1
+
+    no_TP = int(sum(TP))
+    no_FN = int(sum(FN))
+    no_FP = len(pred_notes) - no_TP
+
+    # Berechnung der Metriken
+    precision = no_TP / (no_TP + no_FP) if (no_TP + no_FP) > 0 else 0 #accuracy of positive predictions
+    recall = no_TP / (no_TP + no_FN) if (no_TP + no_FN) > 0 else 0 #ability to identify all positive instances
+    f_score = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0 #harmonic mean
+
+    # Ergebnisse in einem Dictionary zusammenfassen
+    results = {
+        'True Positives (TP)': no_TP,
+        'False Positives (FP)': no_FP,
+        'False Negatives (FN)': no_FN,
+        'Precision': round(precision * 100, 1),
+        'Recall': round(recall * 100, 1),
+        'F-Score': round(f_score * 100, 1)
+    }
+
+    return results
 
 
 

@@ -100,8 +100,8 @@ def preprocess_dataset(base_dir):
 
         #TODO: this needs to be commented back in after debugging and finding of string annotation.
 
-        # np.save(notes_file, notes, allow_pickle=True, fix_imports=False)
-        # print(f'Created {notes_file}')
+        np.save(notes_file, notes, allow_pickle=True, fix_imports=False)
+        print(f'Created {notes_file}')
 
 
 
@@ -111,7 +111,6 @@ def main():
     base_dir = '../../data/guitarset_yourmt3_16k'
     preprocess_dataset(base_dir)
 
-    #TODO: Batching
 
 
 # %%
