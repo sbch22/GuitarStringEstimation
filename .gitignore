@@ -11,7 +11,7 @@ LICENSE
 amt/src/betas.json
 
 
-.venv1/
+.venv/
 data/
 
 Dockerfile

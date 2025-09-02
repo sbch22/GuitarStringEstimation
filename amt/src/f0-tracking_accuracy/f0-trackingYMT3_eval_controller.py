@@ -2,16 +2,16 @@ import subprocess
 import json
 import os
 
-# Liste der Modelle
+# List of models
 modelNames = ["YMT3+", "YPTF+Single (noPS)", "YPTF+Multi (PS)", "YPTF.MoE+Multi (noPS)", "YPTF.MoE+Multi (PS)"]
 
-# Dictionary, um die Ergebnisse zu sammeln
+# dict to store results
 modelScores = {}
 
 for model_name in modelNames:
     print(f"Starting evaluation for model: {model_name}")
 
-    # Starten der f0-trackingYMT3_eval.py mit Übergabe des Modellnamens
+    # start F0-tracking evaluation script
     result = subprocess.run(
         ["python3", "f0-trackingYMT3_eval.py", model_name],
         capture_output=True,
@@ -23,7 +23,7 @@ for model_name in modelNames:
     else:
         print(f"Completed evaluation for model: {model_name}")
 
-        # Ergebnisse aus JSON-Datei laden
+        # load from json
         output_file = f"results_{model_name.replace(' ', '_')}.json"
         if os.path.exists(output_file):
             with open(output_file, 'r') as f:
@@ -31,10 +31,10 @@ for model_name in modelNames:
         else:
             print(f"Warning: No results file found for {model_name}. Skipping...")
 
-# Ergebnisse speichern
+# save results
 with open('model_scores_overall.json', 'w') as f:
     json.dump(modelScores, f)
-    # Ergebnisse in einer lesbaren Textdatei speichern
+
 
 with open('model_scores_overall.txt', 'w') as txt_file:
     for model_name, scores in modelScores.items():
@@ -42,7 +42,7 @@ with open('model_scores_overall.txt', 'w') as txt_file:
         txt_file.write(f"  Precision: {scores['Precision']}\n")
         txt_file.write(f"  Recall: {scores['Recall']}\n")
         txt_file.write(f"  F-Score: {scores['F-Score']}\n")
-        txt_file.write("\n")  # Leerzeile für bessere Lesbarkeit
+        txt_file.write("\n")
 
 
 print("All models processed. Results saved in 'model_scores_overall.txt'.")

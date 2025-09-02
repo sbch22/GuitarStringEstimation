@@ -1,7 +1,7 @@
-# Guitar String Estimation on GuitarSet via YMT3+
+# Guitar String Estimation on GuitarSet via YourMT3
 
 ## Description
-A project developed at IEM Graz during WS24/25. It uses YMT3 as a base for an algorithm for guitar string estimation on acoustic guitars.
+A project developed at IEM Graz during WS24/25. It uses YourMT3 as a base for an algorithm for guitar string estimation on acoustic guitars.
 
 This repository implements a system for automatic recognition and assignment of played guitar strings in audio recordings based on the [YourMT3](https://github.com/mimbres/YourMT3) model for F0-tracking. It is currently WIP and further instructions and restructuring will follow.
 
@@ -20,8 +20,9 @@ cd GuitarStringEstimation
 
 3. Install Python 3.11 in a new environment (recommended with conda or venv):
 ```bash
-conda create -n guitar_string_estimation python=3.11
-conda activate guitar_string_estimation
+Create virtual environment: `python -m venv .venv`
+Install dependencies: `pip install -r requirements.txt`
+
 ```
 
 4. Install dependencies:
@@ -33,9 +34,9 @@ pip install -r requirements.txt
 ```bash
 python install_dataset.py
 ```
-Follow the instructions in the CLI. For this project, only the GuitarSet dataset is needed, no checkpoints.
+Follow the instructions in the CLI. For this project, only GuitarSet dataset is needed.
 
-6. Extract note information the dataset:
+6. Extract notes information the dataset:
 ```bash
 python extract_dataset.py
 ```
@@ -49,43 +50,69 @@ This project uses the [GuitarSet Dataset](https://guitarset.weebly.com/), which 
 - [YourMT3](https://github.com/mimbres/YourMT3) - A modified Music Transcription Transformer model
 - [GuitarSet](https://guitarset.weebly.com/) - Dataset for guitar recordings with annotations
 
-## Project Structure
+# GuitarStringEstimation Project Structure
 
+After installation, the project directory should look like this:
 
-## Evaluate accuracy of YMT3
-To run the evaluation script of YMT3, please run controller for said script. The different models are calculated on the full dataset (could be specified in script) and compares individual models.
+```
+GuitarStringEstimation/
+├── .venv/                    
+├── amt/                      
+│   ├── content/              
+│   ├── logs/                 
+│   └── src/                  
+│       ├── f0-tracking_accuracy/ 
+│       ├── model/        
+│       ├── .../                        # multiple directories from YourMT3 model        
+│       ├── GuitarStringEstimator.py 
+│       └── ...                         # multiple .py files referred to in Usage Instructions
+├── data/                               # Dataset directory
+│   ├── guitarset_yourmt3_16k/ 
+│   ├── yourmt3_indexes/      
+│   └── logs/                 
+├── scripts/                            # Additional scripts
+├── .gitignore               
+├── .gitattributes           
+├── LICENSE                  
+└── README.md                
 
-Note that these are some intense calculations and should be performed on GPU-accelerated machine.
-```bash
-python f0-trackingYMT3_eval_controller.py
 ```
 
 
+## Usage Instructions:
 
-## Calculate Beta-Distributions
-Calculates the inharmonicity coefficient (beta) distributions over the debleeded hex signals and writes them temporarily as betas.json
+### Evaluate accuracy of YourMT3
+To run the evaluation script of YourMT3, navigate to the appropriate directory:
+```bash
+cd amt/src/f0-tracking_accuracy
+python f0-trackingYMT3_eval_controller.py
+```
 
-Note that these are some intense calculations and should be performed on GPU-accelerated machine.
+Note: These are intensive calculations best performed on a GPU-accelerated machine. For debugging, modify the `dbg` boolean toggle in the main() call in `f0-trackingYMT3_eval.py`.
+
+### Calculate Beta-Distributions
+Calculates the inharmonicity coefficient (beta) distributions:
 ```bash
 python betaDistributions.py
 ```
 
-## Perform statistical analysis on Beta-Distributions
-Performs simple statistical tests on Beta-Distributions and plots Histograms from 'betas.json'. This is not neccessary for the workflow of the algorithm but can give further insight.
-
+### Perform statistical analysis on Beta-Distributions
+Runs statistical tests and generates histograms:
 ```bash
 python betaDistributions_stat-test.py
 ```
 
-## Evaluate Beta-Distributions algorithm
-Evaluates the algorithm for finding the Beta-Distributions from GuitarSet.
+### Evaluate Beta-Distributions algorithm
+Evaluates the algorithm for finding Beta-Distributions from GuitarSet:
 ```bash
 python betaDistributions_eval.py
 ```
 
-
-# Run Guitar String Estimation
-Calculates guitar string estimations for each note in GuitarSet (mono-pickup), collects the results and gives feedback on accuracy.
+### Run Guitar String Estimation
+Calculates guitar string estimations for each note in GuitarSet:
 ```bash
 python GuitarStringEstimator.py
 ```
+
+## Frequency Estimation algorithms comparison
+Additional scripts for frequency estimation algorithm comparison can be found in the `scripts/` folder.
