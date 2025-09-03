@@ -102,11 +102,6 @@ Runs statistical tests and generates histograms:
 python betaDistributions_stat-test.py
 ```
 
-### Evaluate Beta-Distributions algorithm
-Evaluates the algorithm for finding Beta-Distributions from GuitarSet:
-```bash
-python betaDistributions_eval.py
-```
 
 ### Run Guitar String Estimation
 Calculates guitar string estimations for each note in GuitarSet:
@@ -114,5 +109,17 @@ Calculates guitar string estimations for each note in GuitarSet:
 python GuitarStringEstimator.py
 ```
 
-## Frequency Estimation algorithms comparison
-Additional scripts for frequency estimation algorithm comparison can be found in the `scripts/` folder.
+## Scripts
+Found in the `scripts/` folder.
+### Frequency Estimation Algorithms
+Frequency estimation algorithm comparison. 
+```bash
+python FrequencyEstimationAccuracy_eval.py
+```
+
+
+### Evaluate Beta-Distributions algorithm
+Evaluates the algorithm for finding Beta-Distributions on synthetic testsignals. Must be run from Project root.
+```bash
+python betaDistributions_eval.py
+```
