@@ -510,7 +510,7 @@ def estimate_inharmonicity_coefficients(
     Returns:
         Nested list of inharmonicity coefficients organized by note and frame
     """
-    beta_max = 10 * 1.4e-4  # Maximum physically reasonable inharmonicity coefficient
+    beta_max = 2e-4  # Maximum physically reasonable inharmonicity coefficient
     all_notes_betas = []  # Store beta values for all notes
 
     for note in notes:
@@ -524,7 +524,7 @@ def estimate_inharmonicity_coefficients(
             continue
 
         # STFT parameters
-        fft_size = 4096 * 2
+        fft_size = 2048
         hop_size = fft_size // 8
 
         if len(note_signal) <= fft_size:

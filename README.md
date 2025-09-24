@@ -99,14 +99,14 @@ python betaDistributions.py
 ### Perform statistical analysis on Beta-Distributions
 Runs statistical tests and generates histograms:
 ```bash
-python betaDistributions_stat-test.py
+python betaDistributions_statTest.py
 ```
 
 
 ### Run Guitar String Estimation
 Calculates guitar string estimations for each note in GuitarSet:
 ```bash
-python GuitarStringEstimator.py
+python guitar_string_estimator.py
 ```
 
 ## Scripts
