@@ -10,7 +10,7 @@ class Features:
 
 @dataclass
 class GT:
-    pitch: Optional[float] = None
+    pitch: Optional[float] = None # midi pitch
     string: Optional[int] = None
     is_drum: Optional[bool] = None
     program: Optional[int] = None
