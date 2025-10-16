@@ -21,7 +21,7 @@ def generate_dataset_stats(data_home: os.PathLike, dataset_name: Optional[str] =
     """Generate dataset stats for a given dataset.
 
     Args:
-        data_home: Path to the data directory.
+        data_home: Path to the noteData directory.
         dataset_name: Name of the dataset to (re)generate stats for. If None, generate MISSING stats for all
           datasets.
     """

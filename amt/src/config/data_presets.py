@@ -1,4 +1,4 @@
-""" data.py:
+""" noteData.py:
 Data presets for training and evaluation.
 
 Single Presets:

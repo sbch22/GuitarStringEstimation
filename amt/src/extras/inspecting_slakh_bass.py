@@ -1,7 +1,7 @@
 import mirdata
 from utils.mirdata_dev.datasets import slakh16k
 
-ds = slakh16k.Dataset(data_home='../../data', version='2100-yourmt3-16k')
+ds = slakh16k.Dataset(data_home='../../noteData', version='2100-yourmt3-16k')
 mtrack_ids = ds.mtrack_ids
 
 # Collect plugin names

@@ -12,7 +12,7 @@ from collections import defaultdict
 
 
 def extract_jams(jams_filename):
-    annotation_directory = '../../data/guitarset_yourmt3_16k/annotation/'
+    annotation_directory = '../../noteData/guitarset_yourmt3_16k/annotation/'
     jams_filepath = os.path.join(annotation_directory, jams_filename)
 
     if os.path.exists(jams_filepath):

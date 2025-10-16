@@ -175,7 +175,7 @@ def test_resampler_sinewave():
 #         Args:
 #         - input_sr (int): Input sampling rate.
 #         - output_sr (int): Output sampling rate.
-#         - dtype (torch.dtype): Computation data type. Default: torch.float32.
+#         - dtype (torch.dtype): Computation noteData type. Default: torch.float32.
 #         - filter_width (int): Number of zeros per side in the sinc function. Default: 16.
 #         - cutoff_ratio (float): Filter rolloff point as a fraction of Nyquist freq. Default: 0.95.
 #         - filter (str): Filter type. One of ['kaiser', 'kaiser_best', 'kaiser_fast', 'hann']. Default: 'kaiser_fast'.

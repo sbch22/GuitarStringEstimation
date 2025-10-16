@@ -132,7 +132,7 @@ def preprocess_slakh16k(data_home: str,
     Processes the Slakh dataset and extracts stems for each multitrack.
 
     Args:
-        data_home (str): path to the Slakh data.
+        data_home (str): path to the Slakh noteData.
         run_checksum (bool): if True, validates the dataset using its checksum. Default is False.
         delete_source_files (bool): if True, deletes original audio files. Default is False.
         fix_bass_octave (bool): if True, fixes the bass to be -1 octave. Slakh bass is annotated as +1 octave. Default is True.

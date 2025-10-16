@@ -260,13 +260,13 @@ def option_prompt(data_home: os.PathLike, no_download: bool = False) -> None:
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='Dataset installer script.')
-    # data home dir
+    # noteData home dir
     parser.add_argument(
         'data_home',
         type=str,
         nargs='?',
         default=None,
-        help='Path to data home directory. If None, use the default path defined in src/config/config.py')
+        help='Path to noteData home directory. If None, use the default path defined in src/config/config.py')
     # `no_download` option
     parser.add_argument('--nodown',
                         '-nd',

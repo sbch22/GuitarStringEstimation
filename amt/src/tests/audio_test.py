@@ -109,13 +109,13 @@ class TestSlicePadForSubbatch(unittest.TestCase):
 class TestWriteWavFile(unittest.TestCase):
 
     def test_write_wav_file_z(self):
-        # Generate some test audio data
+        # Generate some test audio noteData
         samplerate = 16000
         duration = 1  # 1 second
         t = np.linspace(0, duration, int(samplerate * duration), endpoint=False)
         x = np.sin(2 * np.pi * 440 * t)
 
-        # Write the test audio data to a WAV file
+        # Write the test audio noteData to a WAV file
         filename = "extras/test.wav"
         write_wav_file(filename, x, samplerate)
 
