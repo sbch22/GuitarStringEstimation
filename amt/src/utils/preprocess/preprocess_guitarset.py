@@ -249,7 +249,7 @@ def preprocess_guitarset16k(data_home: os.PathLike,
     file_list_all = {int(key): value for key, value in fl.items()}
     generate_pitch_shifted_wav_and_midi(file_list_all, min_pitch_shift=min_pitch_shift, max_pitch_shift=max_pitch_shift)
 
-    # Create file_list.json for pitch shifted data
+    # Create file_list.json for pitch shifted noteData
     for split in ['progression_1', 'progression_2', 'progression_3', 'train', 'all']:
         src_file_list_path = os.path.join(output_index_dir, f'{dataset_name}_{split}_file_list.json')
         with open(src_file_list_path, 'r') as f:
@@ -313,7 +313,7 @@ def create_filelist_by_style_guitarset16k(data_home: os.PathLike, dataset_name: 
         fl = json.load(f)
     assert len(fl) == 720
 
-    # Create file_list.json for training each style using pitch shifted data
+    # Create file_list.json for training each style using pitch shifted noteData
     styles = ['BN', 'Funk', 'SS', 'Jazz', 'Rock']
     for style in styles:
         # Create and write pshift file list

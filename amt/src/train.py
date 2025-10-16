@@ -37,7 +37,7 @@ parser = argparse.ArgumentParser(description="YourMT3")
 # General
 parser.add_argument('exp_id', type=str, help='A unique identifier for the experiment is used to resume training. The "@" symbol can be used to load a specific checkpoint.')
 parser.add_argument('-p', '--project', type=str, default='ymt3', help='project name')
-parser.add_argument('-d', '--data-preset', type=str, default='musicnet_thickstun_ext_em', help='dataset preset (default=musicnet_thickstun_ext_em). See config/data.py for more options.')
+parser.add_argument('-d', '--noteData-preset', type=str, default='musicnet_thickstun_ext_em', help='dataset preset (default=musicnet_thickstun_ext_em). See config/noteData.py for more options.')
 # Intra-stem augmentation
 parser.add_argument('-amp', '--random-amp-range', nargs=2, type=float, default=None, help='random amp range for audio augmentation (default=None, using default value defined in config.py). In command line, use -amp 0.6 1.2')
 parser.add_argument('-iaug', '--stem-iaug-prob', type=float, default=None, help='intra-stem augmentation probability (default follow config.py). p=1.0 means no intra-stem augmentation (no stems are dropped)')
@@ -95,7 +95,7 @@ parser.add_argument('-dff', '--decoder-ff-layer-type', type=str, default=None, h
 parser.add_argument('-dwf', '--decoder-ff-widening-factor', type=int, default=None, help='Feed forward layer widening factor for decoder MLP/MoE/gMLP (default=None). If None, default value defined in config.py will be used.')
 # Task and Evaluation configurations
 parser.add_argument('-tk', '--task', type=str, default='mt3_full_plus', help='tokenizer type (default=gm_ext_plus). See config/task.py for more options.')
-parser.add_argument('-epv', '--eval-program-vocab', type=str, default=None, help='evaluation program vocabulary (default=None). If None, default vocabulary of the data preset will be used.')
+parser.add_argument('-epv', '--eval-program-vocab', type=str, default=None, help='evaluation program vocabulary (default=None). If None, default vocabulary of the noteData preset will be used.')
 parser.add_argument('-w', '--write-model-output', type=str2bool, default=False, help='write model test output to file (default=False). True or False')
 # Trainer configurations
 parser.add_argument('-bsz', '--train-batch-size', nargs=2, type=int, default=None, help='train batch size for sub and local (default=None) per GPU. e.g. "-bsz 6 12". If None, default value defined in config.py will be used.')
@@ -138,7 +138,7 @@ def main():
     elif args.data_preset in data_preset_multi_cfg:
         data_preset = data_preset_multi_cfg[args.data_preset]
     else:
-        raise ValueError(f"Invalid data preset: {args.data_preset}")
+        raise ValueError(f"Invalid noteData preset: {args.data_preset}")
 
     # Task manager
     tm = TaskManager(task_name=args.task, max_shift_steps=int(shared_cfg["TOKENIZER"]["max_shift_steps"]))
@@ -158,7 +158,7 @@ def main():
     #                   **shared_cfg["AUGMENTATION"])
 
     dm = AMTDataModule(
-        data_home="../../data/", #rel path to data, absolute: /Users/simonbuechner/Documents/Studium/AKT/3.Semester_GRAZ_WS2425/Toningenieur-Projekt/dev/YourMT3/data/
+        data_home="../../noteData/", #rel path to noteData, absolute: /Users/simonbuechner/Documents/Studium/AKT/3.Semester_GRAZ_WS2425/Toningenieur-Projekt/dev/YourMT3/noteData/
         data_preset_multi=data_preset,
         task_manager=tm,
         train_num_samples_per_epoch=args.train_num_samples_per_epoch,

@@ -108,7 +108,7 @@ def midi2note(file: Union[os.PathLike, str],
     sustained_notes = [[] for i in range(16)
                       ]  # offset is passed, but sustain is applied. sustained_notes[ch] = [Note1, Note_2,..]
 
-    # Mapping track name to program (for geerdes data)
+    # Mapping track name to program (for geerdes noteData)
     reserved_channels = []
     if track_name_to_program is not None:
         for key in track_name_to_program.keys():

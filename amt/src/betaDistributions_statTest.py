@@ -135,7 +135,7 @@ def main():
     # Plot distributions and get filtered values
     string_values = plot_beta_distributions(betas)
 
-    # Perform statistical tests if we have multiple strings with data
+    # Perform statistical tests if we have multiple strings with noteData
     if len(string_values) > 1:
         # Test for variance homogeneity
         test_name, var_stat, var_p = check_variance_homogeneity(string_values)

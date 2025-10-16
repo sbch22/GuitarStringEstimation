@@ -36,7 +36,7 @@ class AudioFileDataset(Dataset):
 
     Args:
         file_list (Union[str, bytes, os.PathLike], optional):
-            Path to the file list. e.g. "../../data/yourmt3_indexes/slakh_validation_file_list.json"
+            Path to the file list. e.g. "../../noteData/yourmt3_indexes/slakh_validation_file_list.json"
         task_manager (TaskManager, optional): TaskManager instance. Defaults to TaskManager().
         fs (int, optional): Sampling rate. Defaults to 16000.
         seg_len_frame (int, optional): Segment length in frames. Defaults to 32767.

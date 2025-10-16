@@ -67,7 +67,7 @@ def get_annotation_filename(audio_filename: str) -> str:
 
 def load_betas_from_json(filename: str) -> Dict:
     """
-    Load Beta curve data (dictionary) from a JSON file.
+    Load Beta curve noteData (dictionary) from a JSON file.
 
     Args:
         filename: Path to JSON file.
@@ -101,7 +101,7 @@ def compute_kde_normalized(values: np.ndarray, x_vals: np.ndarray) -> np.ndarray
     return kde_vals / area
 
 
-def extract_GT(annotation_filename: str, annotation_directory: str = '../../data/guitarset_yourmt3_16k/annotation/') -> np.ndarray:
+def extract_GT(annotation_filename: str, annotation_directory: str = '../../noteData/guitarset_yourmt3_16k/annotation/') -> np.ndarray:
     """
     Load ground-truth matched notes from a .npy annotation file.
 
@@ -568,8 +568,8 @@ def main(argv=None):
         betas_kde_dict[key] = compute_kde_normalized(raw_vals, betas_kde_x_vals)
 
     # Iteration over audio files + processing
-    audio_directory = '../../data/guitarset_yourmt3_16k/audio_mono-mic/'
-    annotation_directory = '../../data/guitarset_yourmt3_16k/annotation/'
+    audio_directory = '../../noteData/guitarset_yourmt3_16k/audio_mono-mic/'
+    annotation_directory = '../../noteData/guitarset_yourmt3_16k/annotation/'
 
     all_string_notes: List[stringNote] = []
     filtered_string_notes: List[stringNote] = []

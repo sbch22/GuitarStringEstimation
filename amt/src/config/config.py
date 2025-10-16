@@ -126,7 +126,7 @@ model_cfg = {
 # yapf: enable
 shared_cfg = {
     "PATH": {
-        "data_home": "../../data", # path to the data directory. If using relative path, it is relative to /src directory.
+        "data_home": "../../noteData", # path to the noteData directory. If using relative path, it is relative to /src directory.
     },
     "BSZ": { # global batch size is local_bsz * n_GPUs in DDP mode
         "train_sub": 12, #20, # sub-batch size is per CPU worker

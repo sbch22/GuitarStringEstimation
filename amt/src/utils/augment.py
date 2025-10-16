@@ -77,10 +77,10 @@ def audio_random_submix_processor(sampled_data: Dict[str, Any],
                                   audio_masks: Optional[List[Optional[np.ndarray]]] = None,
                                   update_audio_segments: bool = True,
                                   create_processed_audio_array: bool = True) -> None:
-    """Randomly submix audio from sampled data
+    """Randomly submix audio from sampled noteData
     
     Args:
-        sampled_data: a dictionary containing sampled data.
+        sampled_data: a dictionary containing sampled noteData.
             ['audio_segments']: a list of audio segments with length B, each element with shape (1, num_stems, T)            
         random_amp_range: a list of two floats, [min_amp, max_amp]
         audio_masks: a list of masks. Each mask is binary vector with shape (num_stems,).
@@ -133,15 +133,15 @@ def drop_random_stems_from_bundle(sampled_data: Dict[str, Any], prob: float = 0.
     """
     Drop stems with a probability of `prob` from a bundle containing `note_event_segments` and 
     `audio_segments`. It also update `programs`, and add `has_unannotated` info. This function 
-    serves as a utility for stem-based data augmentation used by `intra_stem_augment_processor`  
+    serves as a utility for stem-based noteData augmentation used by `intra_stem_augment_processor`
     and `cross_stem_augment_processor`. 
 
     Args:
-        sampled_data: A dict of sampled data.
-        prob: The probability of dropping stems from the data.
+        sampled_data: A dict of sampled noteData.
+        prob: The probability of dropping stems from the noteData.
 
     Returns:
-        None. The processed data is stored in-place within the `sampled_data` dictionary.
+        None. The processed noteData is stored in-place within the `sampled_data` dictionary.
     
     Update keys in sampled_data (in-place):    
         sampled_data["note_event_segments"]: NoteEventListsBundle
@@ -155,7 +155,7 @@ def drop_random_stems_from_bundle(sampled_data: Dict[str, Any], prob: float = 0.
 
     Function execution time: 16ms for bsz=36 with single worker
     """
-    # Create a deep copy to avoid modifying the original data.
+    # Create a deep copy to avoid modifying the original noteData.
     note_event_segments = deepcopy(sampled_data["note_event_segments"])
     has_unannotated = []  # List of bool, True if unannotated program 129 is in use
 
@@ -495,7 +495,7 @@ def cross_stem_augment_processor(
     Cross-stem augmentation
 
     Args:   
-        sampled_data: a dictionary containing sampled data.
+        sampled_data: a dictionary containing sampled noteData.
             ['note_event_segments']: a list of NoteEventListsBundle with length B
             ['audio_segments']: a list of audio segments with length B, each element with shape (1, num_stems, T)
             ['programs_segments']: a list of programs with length B, each element with shape (num_stems,)
@@ -524,7 +524,7 @@ def cross_stem_augment_processor(
                                     decoder training. Default is False.
 
     Returns:
-        None (processed data is stored in-place within the `sampled_data` dictionary)
+        None (processed noteData is stored in-place within the `sampled_data` dictionary)
     
     Update keys in sampled_data (in-place):
         sampled_data["subunit_programs_segments"]: List[List[np.ndarray]], with length B

@@ -108,7 +108,7 @@ def main():
     beta_values = np.array([b for b in betas if 0 <= b <= 0.001])  # Filter values
     x_grid = np.linspace(0, 0.001, 1000)  # Create evaluation grid
 
-    if len(beta_values) > 1:  # Ensure we have enough data points
+    if len(beta_values) > 1:  # Ensure we have enough noteData points
         kde = gaussian_kde(beta_values)
         kde_values = kde(x_grid)
 

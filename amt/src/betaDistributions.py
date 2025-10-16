@@ -80,8 +80,8 @@ def load_model_checkpoint(args=None):
     parser.add_argument('-dwf', '--decoder-ff-widening-factor', type=int, default=None, help='Feed forward layer widening factor for decoder MLP/MoE/gMLP (default=None). If None, default value defined in config.py will be used.')
     # Task and Evaluation configurations
     parser.add_argument('-tk', '--task', type=str, default='mt3_full_plus', help='tokenizer type (default=mt3_full_plus). See config/task.py for more options.')
-    parser.add_argument('-epv', '--eval-program-vocab', type=str, default=None, help='evaluation vocabulary (default=None). If None, default vocabulary of the data preset will be used.')
-    parser.add_argument('-edv', '--eval-drum-vocab', type=str, default=None, help='evaluation vocabulary for drum (default=None). If None, default vocabulary of the data preset will be used.')
+    parser.add_argument('-epv', '--eval-program-vocab', type=str, default=None, help='evaluation vocabulary (default=None). If None, default vocabulary of the noteData preset will be used.')
+    parser.add_argument('-edv', '--eval-drum-vocab', type=str, default=None, help='evaluation vocabulary for drum (default=None). If None, default vocabulary of the noteData preset will be used.')
     parser.add_argument('-etk', '--eval-subtask-key', type=str, default='default', help='evaluation subtask key (default=default). See config/task.py for more options.')
     parser.add_argument('-t', '--onset-tolerance', type=float, default=0.05, help='onset tolerance (default=0.05).')
     parser.add_argument('-os', '--test-octave-shift', type=str2bool, default=False, help='test optimal octave shift (default=False). True or False')
@@ -178,7 +178,7 @@ def transcribe_file_notes(model, audio_file: np.ndarray, sample_rate: int) -> Li
     """
     Process audio file to extract musical notes using a trained model.
 
-    This function prepares audio data and uses a machine learning model
+    This function prepares audio noteData and uses a machine learning model
     to transcribe musical notes from the audio signal.
 
     Args:
@@ -239,7 +239,7 @@ def transcribe_notes(model, audio_info: Dict, audio_tensor: torch.Tensor, sample
     segment_length = model.audio_cfg['input_frames']
     audio_segments = slice_padded_array(audio_tensor.numpy(), segment_length, segment_length)
 
-    # Move data to appropriate device (GPU if available)
+    # Move noteData to appropriate device (GPU if available)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     audio_segments = torch.from_numpy(audio_segments.astype('float32')).to(device).unsqueeze(1)
 
@@ -293,7 +293,7 @@ def transcribe_notes(model, audio_info: Dict, audio_tensor: torch.Tensor, sample
 
 
 def extract_GT(annotation_filename):
-    annotation_directory = '../../data/guitarset_yourmt3_16k/annotation/'
+    annotation_directory = '../../noteData/guitarset_yourmt3_16k/annotation/'
     annotation_filepath = os.path.join(annotation_directory, annotation_filename)
 
     if os.path.exists(annotation_filepath):
@@ -862,7 +862,7 @@ def process_file(
     4. Save results to files
 
     Args:
-        audio_signal: Multi-channel audio data with shape (samples, 6 channels)
+        audio_signal: Multi-channel audio noteData with shape (samples, 6 channels)
         sample_rate: Sampling rate in Hz
         ground_truth_notes: Reference note annotations for comparison
         beta_storage: Dictionary to store beta values for each string
@@ -992,7 +992,7 @@ def main():
     model = load_model_checkpoint(args=args)
 
     # Set up file paths and parameters
-    audio_directory = '../../data/guitarset_yourmt3_16k/audio_hex-pickup_debleeded/'
+    audio_directory = '../../noteData/guitarset_yourmt3_16k/audio_hex-pickup_debleeded/'
 
     # Initialize storage for beta values (6 strings)
     betas = {f"Saite_{i + 1}": [] for i in range(6)}
