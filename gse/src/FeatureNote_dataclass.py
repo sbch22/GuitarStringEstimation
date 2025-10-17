@@ -15,12 +15,14 @@ class GT:
     is_drum: Optional[bool] = None
     program: Optional[int] = None
     onset: Optional[float] = None
-    onset_diff: Optional[float] = None
     offset: Optional[float] = None
     midi_note: Optional[int] = None
     velocity: Optional[int] = None
     contour: List[Tuple[float, float]] = field(default_factory=list)
     string_index: Optional[int] = None
+
+    # def __post_init__(self):
+
 
 @dataclass
 class FeatureNote:
