@@ -4,6 +4,7 @@ import numpy as np
 from FeatureNote_dataclass import FeatureNote
 import pickle
 import warnings
+import pyfar as pf
 
 # taken from YMT3
 DRUM_OFFSET_TIME = 0.01  # in seconds
@@ -11,10 +12,16 @@ MINIMUM_OFFSET_TIME = 0.01  # this is used to avoid zero-length notes
 DRUM_PROGRAM = 128
 
 @dataclass
+class TrackAudio:
+    mono_mic: Optional[pf.Signal] = None
+    hex_debleeded: Optional[pf.Signal] = None
+    hex_mono_mix: Optional[pf.Signal] = None
+
+
+@dataclass
 class Track:
     name: str
-    audio: Optional[np.ndarray] = None
-    sample_rate: Optional[int] = None
+    audio: Optional[TrackAudio] = None
     notes: List["FeatureNote"] = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
 

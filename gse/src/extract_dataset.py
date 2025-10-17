@@ -5,7 +5,8 @@ import jams
 import glob
 from collections import defaultdict
 from FeatureNote_dataclass import FeatureNote, GT, Features
-from Track_dataclass import Track
+from Track_dataclass import Track, TrackAudio
+import pyfar as pf
 
 def create_track_from_jam(jam_file: str, track_id: str) -> Track:
     jam = jams.load(jam_file)
@@ -29,13 +30,13 @@ def create_track_from_jam(jam_file: str, track_id: str) -> Track:
                     note_contour += [(t, f) for t, f in contour if obs.time <= t <= obs.time + obs.duration]
 
                 gt = GT(
-                    pitch=obs.value,
+                    pitch=(440 / 32) * (2 ** ((obs.value - 9) / 12)), # convert to frequency
                     is_drum=False,
                     program=24,
                     onset=obs.time,
                     offset=obs.time + obs.duration,
                     velocity=1,
-                    midi_note=round(obs.value),
+                    midi_note=obs.value,
                     contour=note_contour,
                 )
 
@@ -44,8 +45,7 @@ def create_track_from_jam(jam_file: str, track_id: str) -> Track:
     track = Track(
         name=track_id,
         notes=notes,
-        audio=None,  # can load later
-        sample_rate=None,
+        audio=TrackAudio(),  # can load later
         metadata={"duration_sec": jam.file_metadata.duration, "source": "GuitarSet"},
     )
 
@@ -57,6 +57,22 @@ def create_track_from_jam(jam_file: str, track_id: str) -> Track:
     return track
 
 
+def load_track_audio(track: Track, data_dir: str):
+    base_name = track.name  # e.g. "00_BN1-129-Eb_comp"
+
+    paths = {
+        "mono_mic": os.path.join(data_dir, "audio_mono-mic", f"{base_name}_mic.wav"),
+        "hex_debleeded": os.path.join(data_dir, "audio_hex-pickup_debleeded", f"{base_name}_hex_cln.wav"),
+        "hex_mono_mix": os.path.join(data_dir, "audio_mono-pickup_mix", f"{base_name}_mix.wav"),
+    }
+
+    for attr, file_path in paths.items():
+        if os.path.exists(file_path):
+            print(f"Loading {attr} from {file_path}")
+            setattr(track.audio, attr, pf.io.read_audio(file_path))
+        else:
+            print(f"Missing {attr} file for {base_name}: {file_path}")
+
 def preprocess_dataset(data_dir, save_dir):
     all_ann_files = glob.glob(os.path.join(data_dir, 'annotation/*.jams'), recursive=True)
     assert len(all_ann_files) == 360
@@ -66,24 +82,24 @@ def preprocess_dataset(data_dir, save_dir):
         guitarset_id = os.path.basename(ann_file).split('.')[0]
 
         track = create_track_from_jam(ann_file, guitarset_id)
+        load_track_audio(track, data_dir) # load all needed audio files
+
         track_filename = os.path.basename(ann_file).replace('.jams', '_track.pkl')
         save_path = os.path.join(save_dir, track_filename)
         track.save(save_path)
         print(f'Saved track object: {save_path}')
 
+        # load miscellaneous data
 
+        # slowly fill up all the attributes
 
-
+        # call inference and match notes
 
 # Main
 def main():
     data_dir = '../../data/guitarset_yourmt3_16k'
     save_dir = '../noteData/'
     preprocess_dataset(data_dir, save_dir)
-
-
-
-
 
 # %%
 if __name__ == "__main__":
