@@ -8,9 +8,9 @@
 #
 # Please see the details in the LICENSE file.
 import sys
-import importlib
 from dataclasses import dataclass, field
 from typing import Set, List, Optional, Tuple
+import importlib
 
 if sys.version_info >= (3, 8):
     typing_module = importlib.import_module("typing")

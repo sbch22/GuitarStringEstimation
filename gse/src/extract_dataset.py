@@ -4,8 +4,8 @@ sys.path.append(os.path.abspath(''))
 import jams
 import glob
 from collections import defaultdict
-from FeatureNote_dataclass import FeatureNote, GT, Features
-from Track_dataclass import Track, TrackAudio
+from gse.src.utils.FeatureNote_dataclass import FeatureNote, Attributes, Features
+from gse.src.utils.Track_dataclass import Track, TrackAudio
 import pyfar as pf
 
 def create_track_from_jam(jam_file: str, track_id: str) -> Track:
@@ -29,8 +29,8 @@ def create_track_from_jam(jam_file: str, track_id: str) -> Track:
                 for index, contour in contours.items():
                     note_contour += [(t, f) for t, f in contour if obs.time <= t <= obs.time + obs.duration]
 
-                gt = GT(
-                    pitch=(440 / 32) * (2 ** ((obs.value - 9) / 12)), # convert to frequency
+                attr = Attributes(
+                    pitch= 440.0 * (2 ** ((obs.value - 69) / 12)), # convert to frequency
                     is_drum=False,
                     program=24,
                     onset=obs.time,
@@ -40,7 +40,7 @@ def create_track_from_jam(jam_file: str, track_id: str) -> Track:
                     contour=note_contour,
                 )
 
-                notes.append(FeatureNote(gt=gt, features=Features()))
+                notes.append(FeatureNote(attributes=attr, features=Features(), origin='gt'))
 
     track = Track(
         name=track_id,
@@ -55,7 +55,6 @@ def create_track_from_jam(jam_file: str, track_id: str) -> Track:
     track.notes = Track.trim_overlapping_notes(track.notes)
 
     return track
-
 
 def load_track_audio(track: Track, data_dir: str):
     base_name = track.name  # e.g. "00_BN1-129-Eb_comp"
@@ -84,16 +83,12 @@ def preprocess_dataset(data_dir, save_dir):
         track = create_track_from_jam(ann_file, guitarset_id)
         load_track_audio(track, data_dir) # load all needed audio files
 
+        print(Track.__module__)
+
         track_filename = os.path.basename(ann_file).replace('.jams', '_track.pkl')
         save_path = os.path.join(save_dir, track_filename)
         track.save(save_path)
         print(f'Saved track object: {save_path}')
-
-        # load miscellaneous data
-
-        # slowly fill up all the attributes
-
-        # call inference and match notes
 
 # Main
 def main():
