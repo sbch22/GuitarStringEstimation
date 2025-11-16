@@ -208,8 +208,15 @@ def freq_semi_empirical(noteFreq, string_freq):
     else:  # Frequency above double the string frequency
         return 1e-6  # Very unlikely
 
+
+
+
+
+from betaDistributions_statTest import plot_beta_distributions
+
+
 """Funktion combined, Wasserstein - best results"""
-def wasserstein_freq_semi_empirical(stringNotes, betas_roh, use_kde=True, plot=False):
+def wasserstein_freq_semi_empirical(stringNotes, betas_roh, use_kde=True, plot=True):
     updated_stringNotes = []
     string_keys = [f"Saite_{i + 1}" for i in range(6)]
     string_labels = [f"String_{i}" for i in range(6)]  # Anpassung der Labels für Plots
@@ -242,19 +249,39 @@ def wasserstein_freq_semi_empirical(stringNotes, betas_roh, use_kde=True, plot=F
     # Plot setup for string distributions
     if plot:
         plt.figure(figsize=(12, 8))
-        x_vals = np.linspace(0, 0.001, 200)
 
-        # Plot distributions for each string
+        # Größere Schriftgrößen für Latex-Zweispaltendruck
+        plt.rcParams.update({
+            "font.size": 18,
+            "axes.labelsize": 20,
+            "axes.titlesize": 22,
+            "legend.fontsize": 18,
+            "xtick.labelsize": 18,
+            "ytick.labelsize": 0
+        })
+
+        x_vals = np.linspace(0, 0.001, 400)
+
+        # PDFs zeichnen
         for i, string_key in enumerate(string_keys):
             mean, std = betas_mean_std[string_key]
             string_pdf = norm.pdf(x_vals, mean, std)
-            plt.plot(x_vals, string_pdf, label=f"{string_labels[i]} (Normal)", color=colors[string_key])
+            plt.plot(
+                x_vals,
+                string_pdf,
+                label=f"{string_labels[i]}",
+                color=colors[string_key],
+                linewidth=2.5
+            )
 
-        plt.xlabel("Beta Value")
-        plt.ylabel("Probability Density")
-        plt.title("String PDFs")
+        # Achsen + Titel
+        plt.xlabel("Inharmonizitätskoeffizient $\\beta$")
+        plt.ylabel("Wahrscheinlichkeitsdichte")
+        # plt.title("Approximierte Wahrscheinlichkeitsdichten der Inharmonizitätskoeffizienten")
+
+        plt.grid(alpha=0.3)
         plt.legend()
-        plt.grid()
+        plt.tight_layout()
         plt.show()
 
     for note in stringNotes:
@@ -306,7 +333,7 @@ def wasserstein_freq_semi_empirical(stringNotes, betas_roh, use_kde=True, plot=F
             best_string_idx = np.argmax(combined_scores)
             best_string = best_string_idx
 
-            if plot:
+            if False:
                 plt.figure(figsize=(8, 5))
                 matched_string_key = string_keys[best_string_idx]
                 mean, std = betas_mean_std[matched_string_key]

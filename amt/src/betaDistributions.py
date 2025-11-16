@@ -723,18 +723,18 @@ def filter_outliers_iqr(beta_values, debug=False):
 
     filtered_values = beta_array[(beta_array >= lower_bound) & (beta_array <= upper_bound)].tolist()
 
-    if debug:
-        plt.figure(figsize=(8, 5))
-        plt.hist(beta_values, bins=100, alpha=0.5, label="Original values", color="blue")
-        plt.hist(filtered_values, bins=100, alpha=0.7, label="Filtered values", color="orange")
-        plt.axvline(Q1, color="green", linestyle="dashed", label="Q10 (10%)")
-        plt.axvline(Q3, color="red", linestyle="dashed", label="Q90 (90%)")
-        plt.xlabel("Beta values")
-        plt.ylabel("Frequency")
-        plt.title("Distribution of partial betas before and after IQR filtering")
-        plt.legend()
-        plt.grid()
-        plt.show()
+    # if debug:
+    #     plt.figure(figsize=(8, 5))
+    #     plt.hist(beta_values, bins=100, alpha=0.5, label="Original values", color="blue")
+    #     plt.hist(filtered_values, bins=100, alpha=0.7, label="Filtered values", color="orange")
+    #     plt.axvline(Q1, color="green", linestyle="dashed", label="Q10 (10%)")
+    #     plt.axvline(Q3, color="red", linestyle="dashed", label="Q90 (90%)")
+    #     plt.xlabel("Beta values")
+    #     plt.ylabel("Frequency")
+    #     plt.title("Distribution of partial betas before and after IQR filtering")
+    #     plt.legend()
+    #     plt.grid()
+    #     plt.show()
 
     return filtered_values
 
@@ -951,7 +951,7 @@ def main():
     # Configuration
     model_name = "YPTF+Single (noPS)"
     dbg = False  # Set to True for debugging with early stopping
-    plot_mode = False
+    plot_mode = True
     max_files_to_process = 4  # Process only this many files when debugging
     print(f"Running evaluation for model: {model_name}")
 

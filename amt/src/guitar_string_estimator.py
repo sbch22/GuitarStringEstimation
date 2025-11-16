@@ -213,11 +213,36 @@ def analyze_string_predictions(string_notes: List[stringNote]) -> Dict:
     accuracy = (correct_predictions / total_notes) * 100.0
     print(f"Overall Accuracy (String Prediction): {accuracy:.2f}%")
 
-    plt.figure(figsize=(8, 6))
-    sns.heatmap(conf_matrix, annot=True, fmt="d", cmap="Blues", xticklabels=np.arange(6), yticklabels=np.arange(6))
-    plt.xlabel("Predicted String")
-    plt.ylabel("True String")
-    plt.title("Confusion Matrix (String predictions)")
+    plt.figure(figsize=(10, 8))
+
+    # Einheitliche Schriftgrößen wie beim PDF-Plot
+    plt.rcParams.update({
+        "font.size": 18,
+        "axes.labelsize": 20,
+        "axes.titlesize": 22,
+        "legend.fontsize": 16,
+        "xtick.labelsize": 16,
+        "ytick.labelsize": 16
+    })
+
+    # Saitenlabels 1–6
+    labels = [f"{i}" for i in range(1, 7)]
+
+    sns.heatmap(
+        conf_matrix,
+        annot=True,
+        fmt="d",
+        cmap="Blues",
+        xticklabels=labels,
+        yticklabels=labels,
+        cbar_kws={"label": "Anzahl"}
+    )
+
+    plt.xlabel("Vorhergesagte Saite")
+    plt.ylabel("Tatsächliche Saite")
+    #plt.title("Konfusionsmatrix der Saitenvorhersage")
+
+    plt.tight_layout()
     plt.show()
 
     unique, counts = np.unique(preds, return_counts=True)
@@ -377,23 +402,23 @@ def estimate_betas_for_note(string_sig: np.ndarray, sr: int, notes: List[stringN
             prev_fft = curr_fft
 
             # Debug plotting (kept original plotting layout)
-            if dbg:
-                plt.figure(figsize=(12, 6))
-                plt.plot(freqs, magnitude_db, label=f"Frame {frame_idx}")
-                plt.axhline(Threshold, color='black', linestyle='--', label=f'Threshold: {Threshold:.2f} dB')
-                plt.scatter(note_freq, 0, color="purple", marker="x", s=100, label="Model NoteFreq")
-                plt.scatter(freqs[peak_indices], magnitude_db[peak_indices], color='orange', marker="o", label="Detected Peaks")
-                predicted_partials = [fundamental * (i + 1) for i in range(1, n_partials)]
-                plt.scatter(predicted_partials, [0] * len(predicted_partials), color='red', marker="s", label="Predicted Partials")
-                real_partials = list(partials.values())
-                plt.scatter(real_partials, [-2] * len(real_partials), color='green', marker="d", label="Real Partials")
-                plt.title(f"Frequency Spectrum (Frame {frame_idx})")
-                plt.xlabel("Frequency (Hz)")
-                plt.ylabel("Magnitude (dB)")
-                plt.xscale("log")
-                plt.grid()
-                plt.legend()
-                plt.show()
+            # if dbg:
+            #     plt.figure(figsize=(12, 6))
+            #     plt.plot(freqs, magnitude_db, label=f"Frame {frame_idx}")
+            #     plt.axhline(Threshold, color='black', linestyle='--', label=f'Threshold: {Threshold:.2f} dB')
+            #     plt.scatter(note_freq, 0, color="purple", marker="x", s=100, label="Model NoteFreq")
+            #     plt.scatter(freqs[peak_indices], magnitude_db[peak_indices], color='orange', marker="o", label="Detected Peaks")
+            #     predicted_partials = [fundamental * (i + 1) for i in range(1, n_partials)]
+            #     plt.scatter(predicted_partials, [0] * len(predicted_partials), color='red', marker="s", label="Predicted Partials")
+            #     real_partials = list(partials.values())
+            #     plt.scatter(real_partials, [-2] * len(real_partials), color='green', marker="d", label="Real Partials")
+            #     plt.title(f"Frequency Spectrum (Frame {frame_idx})")
+            #     plt.xlabel("Frequency (Hz)")
+            #     plt.ylabel("Magnitude (dB)")
+            #     plt.xscale("log")
+            #     plt.grid()
+            #     plt.legend()
+            #     plt.show()
 
         # Flatten nested beta lists and attach to note object
         flat_betas = flatten_recursive(note_betas)
@@ -513,7 +538,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     dbg = bool(args.debug)
-    max_files = int(args.max_files)
+    dbg = True
+    max_files = 10
 
     model_name = "YPTF+Single (noPS)"
     print(f"Running evaluation for model: {model_name}")
