@@ -133,3 +133,38 @@ class Track:
             )
 
         return trimmed_notes
+
+    @staticmethod
+    def match_notes(delta: float, all_notes: List['FeatureNote']):
+        """
+        Match predicted notes with ground-truth notes based on onset tolerance and pitch & program equality.
+        Marks both notes as matched by setting `Track.match = True`.
+        """
+        # Separate GT and predicted notes
+        gt_notes = [n for n in all_notes if n.origin == "GT"]
+        pred_notes = [n for n in all_notes if n.origin != "GT"]
+
+        # To avoid matching the same predicted note multiple times
+        used_pred_notes = set()
+
+        for gt in gt_notes:
+            best_pred = None
+            best_time_diff = float("inf")
+
+            for pred in pred_notes:
+                if pred in used_pred_notes:
+                    continue
+                if pred.attributes.pitch != gt.attributes.pitch:
+                    continue
+                if pred.attributes.program != gt.attributes.program:
+                    continue
+                time_diff = abs(pred.attributes.onset - gt.attributes.onset)
+                if time_diff <= delta and time_diff < best_time_diff:
+                    best_time_diff = time_diff
+                    best_pred = pred
+
+            # If we have a match, mark them
+            if best_pred is not None:
+                gt.match = True
+                best_pred.attributes.is_matched = True
+                used_pred_notes.add(best_pred)
