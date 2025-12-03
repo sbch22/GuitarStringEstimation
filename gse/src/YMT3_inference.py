@@ -261,8 +261,6 @@ def transcribe_notes(model, audio_info: Dict, audio_tensor: torch.Tensor, sample
     return final_notes
 
 
-
-
 def process_track(track, model):
     # process hex signal
     strings_signal = track.audio.hex_debleeded
@@ -304,6 +302,9 @@ def process_track(track, model):
 
             # Append to this track’s note list
             track.notes.append(fnote)
+
+    # match notes with GT
+    track.match_notes(50, track.notes)
 
 
 

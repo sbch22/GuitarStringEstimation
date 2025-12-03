@@ -31,16 +31,17 @@ class Attributes:
 
 @dataclass
 class Partial:
-    order: int
+    n: int
     frametimes: np.ndarray[float]
     frequencies: np.ndarray[float]
-    amps: np.ndarray[float]
+    amplitudes: np.ndarray[float]
 
 
 @dataclass
 class FeatureNote:
     # Matching / bookkeeping
     origin: Optional[str] = None # GT, model or match
+    match: bool = False
 
     # Attributes: pitch, onset, offset, etc.
     attributes: Optional[Attributes] = None
@@ -52,9 +53,5 @@ class FeatureNote:
     estimated_string: Optional[int] = None
 
     partials: List["Partial"] = field(default_factory=list)
-
-
-    # Todo: method to match notes
-
 
     # TODO: method that returns windowed frames of pure data -> vectorized operations
