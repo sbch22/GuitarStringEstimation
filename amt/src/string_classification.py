@@ -257,10 +257,12 @@ def wasserstein_freq_semi_empirical(stringNotes, betas_roh, use_kde=True, plot=T
             "axes.titlesize": 22,
             "legend.fontsize": 18,
             "xtick.labelsize": 18,
-            "ytick.labelsize": 0
+            "ytick.labelsize": 18,
         })
 
         x_vals = np.linspace(0, 0.001, 400)
+
+        string_name = [f"E", f"A", f"d", f"g", f"h", f"e'"]
 
         # PDFs zeichnen
         for i, string_key in enumerate(string_keys):
@@ -269,7 +271,7 @@ def wasserstein_freq_semi_empirical(stringNotes, betas_roh, use_kde=True, plot=T
             plt.plot(
                 x_vals,
                 string_pdf,
-                label=f"{string_labels[i]}",
+                label=f"{string_name[i]}",
                 color=colors[string_key],
                 linewidth=2.5
             )

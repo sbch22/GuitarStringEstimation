@@ -164,18 +164,11 @@ def plot_frequency_distribution(string_notes: List[stringNote]) -> None:
 
 def analyze_string_predictions(string_notes: List[stringNote]) -> Dict:
     """
-    Compute accuracy, confusion matrix, per-string accuracy and mean likelihood ratio.
-
-    Args:
-        string_notes: list of stringNote objects with fields:
-            - string_pred (predicted),
-            - stringGT (ground-truth),
-            - likelihood_ratio (optional)
-
-    Returns:
-        Dictionary containing accuracy, confusion_matrix (np.ndarray 6x6), string_counts,
-        mean_likelihood, per_string_accuracy (dict).
+    Compute accuracy, confusion matrix (percentage), per-string accuracy,
+    and mean likelihood ratio. Plot confusion matrix with percentage values
+    and highlighted diagonal.
     """
+
     total_notes = 0
     correct_predictions = 0
     likelihoods = []
@@ -183,39 +176,47 @@ def analyze_string_predictions(string_notes: List[stringNote]) -> Dict:
     preds = []
     gts = []
 
+    # --- Count predictions ---
     for note in string_notes:
         if note.string_pred is None or note.stringGT is None:
             continue
+
         gt = int(note.stringGT)
         pred = int(note.string_pred)
-        # guard against out-of-range indices
+
         if not (0 <= gt < 6 and 0 <= pred < 6):
             continue
+
         conf_matrix[gt, pred] += 1
         preds.append(pred)
         gts.append(gt)
+
         total_notes += 1
         if gt == pred:
             correct_predictions += 1
+
         if note.likelihood_ratio is not None:
             likelihoods.append(note.likelihood_ratio)
 
     if total_notes == 0:
-        print("No notes with both string_pred and stringGT were found.")
-        return {
-            "accuracy": 0.0,
-            "confusion_matrix": None,
-            "string_counts": None,
-            "mean_likelihood": 0.0,
-            "per_string_accuracy": None
-        }
+        print("No valid notes found.")
+        return {}
 
+    # --- Convert to percentage matrix ---
+    conf_matrix_pct = np.zeros_like(conf_matrix, dtype=float)
+
+    for row in range(6):
+        row_sum = np.sum(conf_matrix[row, :])
+        if row_sum > 0:
+            conf_matrix_pct[row, :] = (conf_matrix[row, :] / row_sum) * 100.0
+
+    # --- Overall Accuracy ---
     accuracy = (correct_predictions / total_notes) * 100.0
-    print(f"Overall Accuracy (String Prediction): {accuracy:.2f}%")
+    print(f"\nOverall Accuracy: {accuracy:.2f}%\n")
 
+    # --- Plotting ---
     plt.figure(figsize=(10, 8))
 
-    # Einheitliche Schriftgrößen wie beim PDF-Plot
     plt.rcParams.update({
         "font.size": 18,
         "axes.labelsize": 20,
@@ -225,43 +226,55 @@ def analyze_string_predictions(string_notes: List[stringNote]) -> Dict:
         "ytick.labelsize": 16
     })
 
-    # Saitenlabels 1–6
-    labels = [f"{i}" for i in range(1, 7)]
+    labels = [f"E", f"A", f"d", f"g", f"h", f"e'"]
+
+    diag_mask = np.zeros_like(conf_matrix_pct, dtype=bool)
+    np.fill_diagonal(diag_mask, True)
 
     sns.heatmap(
-        conf_matrix,
+        conf_matrix_pct,
         annot=True,
-        fmt="d",
+        fmt=".0f",
         cmap="Blues",
         xticklabels=labels,
         yticklabels=labels,
-        cbar_kws={"label": "Anzahl"}
+        cbar_kws={"label": "Saitenzuweisungen (%)"},
+        linewidths=0.5,
+        linecolor='white'
     )
 
     plt.xlabel("Vorhergesagte Saite")
     plt.ylabel("Tatsächliche Saite")
-    #plt.title("Konfusionsmatrix der Saitenvorhersage")
-
     plt.tight_layout()
     plt.show()
 
-    unique, counts = np.unique(preds, return_counts=True)
-    string_counts = dict(zip(unique.tolist(), counts.tolist()))
-    mean_likelihood = float(np.mean(likelihoods)) if likelihoods else 0.0
-
+    # --- Per-string accuracy ---
     correct_counts = {i: int(conf_matrix[i, i]) for i in range(6)}
     total_counts = {i: int(np.sum(conf_matrix[i, :])) for i in range(6)}
     per_string_accuracy = {
-        i: (correct_counts[i] / total_counts[i]) * 100.0 if total_counts[i] > 0 else 0.0 for i in range(6)
+        i: (correct_counts[i] / total_counts[i]) * 100.0 if total_counts[i] > 0 else 0.0
+        for i in range(6)
     }
 
-    print("Per-string accuracy (%)")
-    for s, acc in per_string_accuracy.items():
-        print(f"String {s}: {acc:.2f}%")
+    # --- Console Output ---
+    string_names = ["E", "A", "d", "g", "h", "e'"]
+
+    print("Per-string accuracy:")
+    for i in range(6):
+        print(f"  Saite {string_names[i]}: {per_string_accuracy[i]:.2f}% "
+              f"({correct_counts[i]}/{total_counts[i]} korrekt)")
+
+    mean_likelihood = float(np.mean(likelihoods)) if likelihoods else 0.0
+    print(f"\nMean likelihood ratio: {mean_likelihood:.4f}")
+
+    print("\n--- Done ---\n")
+
+    # --- Return result dict ---
+    string_counts = dict(zip(*np.unique(preds, return_counts=True)))
 
     return {
         "accuracy": accuracy,
-        "confusion_matrix": conf_matrix,
+        "confusion_matrix_percent": conf_matrix_pct,
         "string_counts": string_counts,
         "mean_likelihood": mean_likelihood,
         "per_string_accuracy": per_string_accuracy
@@ -539,7 +552,7 @@ def main(argv=None):
 
     dbg = bool(args.debug)
     dbg = True
-    max_files = 10
+    max_files = 5
 
     model_name = "YPTF+Single (noPS)"
     print(f"Running evaluation for model: {model_name}")
