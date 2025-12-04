@@ -141,30 +141,17 @@ class Track:
         Marks both notes as matched by setting `Track.match = True`.
         """
         # Separate GT and predicted notes
-        gt_notes = [n for n in all_notes if n.origin == "GT"]
-        pred_notes = [n for n in all_notes if n.origin != "GT"]
+        gt_notes = [n for n in all_notes if n.origin == "gt"]
+        pred_notes = [n for n in all_notes if n.origin == "model"]
 
-        # To avoid matching the same predicted note multiple times
-        used_pred_notes = set()
-
-        for gt in gt_notes:
-            best_pred = None
-            best_time_diff = float("inf")
-
-            for pred in pred_notes:
-                if pred in used_pred_notes:
+        for pred in pred_notes:
+            for gt in gt_notes:
+                if gt.attributes.midi_note != pred.attributes.midi_note:
                     continue
-                if pred.attributes.pitch != gt.attributes.pitch:
-                    continue
-                if pred.attributes.program != gt.attributes.program:
+                if gt.attributes.program != pred.attributes.program:
                     continue
                 time_diff = abs(pred.attributes.onset - gt.attributes.onset)
-                if time_diff <= delta and time_diff < best_time_diff:
-                    best_time_diff = time_diff
+                if time_diff <= delta:
                     best_pred = pred
-
-            # If we have a match, mark them
-            if best_pred is not None:
-                gt.match = True
-                best_pred.attributes.is_matched = True
-                used_pred_notes.add(best_pred)
+                    pred.match = True
+                    gt.match = True

@@ -14,6 +14,7 @@ print("Number of notes:", len(track.notes))
 # check one note
 first_note = track.notes[0]
 
+notes = track.notes
 
 # check if audio loaded
 if track.audio.mono_mic:
