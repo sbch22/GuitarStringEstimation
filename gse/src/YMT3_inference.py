@@ -303,8 +303,17 @@ def process_track(track, model):
             # Append to this track’s note list
             track.notes.append(fnote)
 
-    # match notes with GT
-    track.match_notes(50, track.notes)
+    # match notes with GT (use seconds)
+    delta_seconds = 0.050  # <-- 50 ms
+    track.match_notes(delta_seconds, track.notes)
+
+    matched_notes = [n for n in track.notes if n.match]
+    unmatched_notes = [n for n in track.notes if not n.match]
+
+    print(f"Matched Notes: {len(matched_notes)}")
+    print(f"Unmatched Notes: {len(unmatched_notes)}")
+    print(f"Match Ratio: {len(matched_notes) / len(track.notes):.3f}")
+
 
 
 

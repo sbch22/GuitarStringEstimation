@@ -29,15 +29,18 @@ def create_track_from_jam(jam_file: str, track_id: str) -> Track:
                 for index, contour in contours.items():
                     note_contour += [(t, f) for t, f in contour if obs.time <= t <= obs.time + obs.duration]
 
+                noteMIDI = round(obs.value)
+                noteFREQ = (440 / 32) * (2 ** ((noteMIDI - 9) / 12))
+
                 attr = Attributes(
-                    pitch= 440.0 * (2 ** ((obs.value - 69) / 12)), # convert to frequency
                     is_drum=False,
                     program=24,
                     onset=obs.time,
                     offset=obs.time + obs.duration,
                     velocity=1,
-                    midi_note=obs.value,
+                    midi_note= noteMIDI,
                     contour=note_contour,
+                    pitch=noteFREQ,  # convert to frequency
                 )
 
                 notes.append(FeatureNote(attributes=attr, features=Features(), origin='gt'))

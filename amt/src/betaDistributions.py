@@ -358,24 +358,6 @@ def extract_GT(annotation_filename):
 
 
 
-def estimate_frequency_and_amplitude(prev_phase, current_phase, k, W, H, sr, frame, window):
-    if k < 0 or k >= W // 2:
-        raise ValueError("Bin index k is out of bounds.")
-
-    omega_k = 2 * np.pi * k / W  # Digitale Frequenz bei Bin k
-
-    epsilon = 1e-10
-    delta_phi = omega_k * H + np.mod(current_phase - prev_phase - omega_k * H + np.pi + epsilon, 2 * np.pi) - np.pi
-
-    est_freq = delta_phi / (2 * np.pi * H) * sr
-
-    n = np.arange(W)
-    dft_coeff = np.dot(frame * window, np.exp(1j * 2 * np.pi * est_freq / sr * n))
-    est_amplitude = 2 * np.abs(dft_coeff) / np.sum(window)
-
-    return est_freq, est_amplitude
-
-
 
 def calculate_partials(
         fundamental: float,
