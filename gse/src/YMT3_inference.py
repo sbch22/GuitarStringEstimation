@@ -377,6 +377,10 @@ def main():
         # Process the file with debug mode setting
         process_track(track, model)
 
+        track.save(filepath)
+        print(f"pickled model-matched note object {filename} into {filepath}.")
+
+
         # Update progress counter
         file_counter += 1
         print(f"Processed file {file_counter}: {filename}")
