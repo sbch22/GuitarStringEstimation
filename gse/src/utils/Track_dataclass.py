@@ -155,3 +155,4 @@ class Track:
                     best_pred = pred
                     pred.match = True
                     gt.match = True
+                    gt.attributes.string_index = pred.attributes.string_index

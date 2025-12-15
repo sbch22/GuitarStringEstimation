@@ -1,8 +1,10 @@
-import extract_dataset
+import extract_GuitarSet
 import YMT3_inference
 import extract_partials
 import calculate_features
 import feature_classifier
+
+# TODO: test-train-split filelist -> hand over into scripts, or find different solution like saving in JSON
 
 def main():
     extract_dataset.main()

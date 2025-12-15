@@ -12,7 +12,6 @@ class Features:
 @dataclass
 class Attributes:
     pitch: Optional[float] = None # frequency in Hz
-    string: Optional[int] = None
     is_drum: Optional[bool] = None
     program: Optional[int] = None
     onset: Optional[float] = None
@@ -30,8 +29,7 @@ class Attributes:
 
 
 @dataclass
-class Partial:
-    n: int
+class Partials:
     frametimes: np.ndarray[float]
     frequencies: np.ndarray[float]
     amplitudes: np.ndarray[float]
@@ -45,13 +43,10 @@ class FeatureNote:
 
     # Attributes: pitch, onset, offset, etc.
     attributes: Optional[Attributes] = None
-
     # audio feature vector
     features: Optional[Features] = None
 
     # Estimations
     estimated_string: Optional[int] = None
 
-    partials: List["Partial"] = field(default_factory=list)
-
-    # TODO: method that returns windowed frames of pure data -> vectorized operations
+    partials: Optional[Partials] = None
