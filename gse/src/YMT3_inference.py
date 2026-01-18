@@ -35,7 +35,7 @@ import _pickle as pickle
 from typing import Dict, List
 import torchaudio
 from gse.src.utils.FeatureNote_dataclass import FeatureNote, Attributes
-
+import numpy as np
 
 
 
@@ -191,7 +191,7 @@ def load_model_checkpoint(args=None):
 
     return model.eval()
 
-def transcribe_notes(model, audio_info: Dict, audio_tensor: torch.Tensor, sample_rate: int, string_index: int) -> List:
+def transcribe_notes(model, audio_info: Dict, audio_tensor: torch.Tensor, sample_rate: int) -> List:
     timer = Timer()
 
     # --- Audio Preprocessing ---
@@ -264,10 +264,11 @@ def transcribe_notes(model, audio_info: Dict, audio_tensor: torch.Tensor, sample
 def process_track(track, model):
     # process hex signal
     strings_signal = track.audio.hex_debleeded
+    # strings_signal = track.audio.hex
     sample_rate = strings_signal.sampling_rate
     strings_audio_data = strings_signal.time
 
-    for i in range(0, 5):
+    for i in range(0, 6):
         string_audio_data = strings_audio_data[i, :]
         audio_tensor = torch.from_numpy(string_audio_data).float()
         audio_info = {
@@ -280,7 +281,7 @@ def process_track(track, model):
         }
         print(f"Audio info: {audio_info}")
 
-        model_string_notes = transcribe_notes(model, audio_info, audio_tensor, sample_rate, string_index = i)
+        model_string_notes = transcribe_notes(model, audio_info, audio_tensor, sample_rate)
 
         for note in model_string_notes:
             # Create an Attributes object for this note
@@ -315,9 +316,7 @@ def process_track(track, model):
     print(f"Match Ratio: {len(matched_notes) / len(track.notes):.3f}")
 
 
-
-
-def main():
+def main(track_directory):
     # model config
     model_name = "YPTF+Single (noPS)"
     print(f"Running evaluation for model: {model_name}")
@@ -358,18 +357,20 @@ def main():
     model = load_model_checkpoint(args=args)
 
     file_counter = 0
-    track_directory = '../noteData/'
+
+    files_to_analyze = 10
 
     # Process each audio file in the directory
     for filename in os.listdir(track_directory):
+        # skip directories
+        if os.path.isdir(os.path.join(track_directory, filename)):
+            continue
 
         filepath = os.path.join(track_directory, filename)
         """
         temporary fix 
         --> project should be refactore into a common folder, amt folder, gse folder
         """
-        # import gse.src.utils.Track_dataclass as track_module  # adjust to your actual path
-        # sys.modules["utils.Track_dataclass"] = track_module
 
         with open(filepath, "rb") as f:
             track = pickle.load(f)
@@ -377,14 +378,13 @@ def main():
         # Process the file with debug mode setting
         process_track(track, model)
 
-        track.save(filepath)
-        print(f"pickled model-matched note object {filename} into {filepath}.")
+        dev_save_path = os.path.join(track_directory, 'dev', filename)
 
-
-        # Update progress counter
+        track.save(dev_save_path)
+        print(f"pickled model-matched note object {filename} into {dev_save_path}.")
         file_counter += 1
         print(f"Processed file {file_counter}: {filename}")
-
+        if file_counter >= files_to_analyze: break
 
 if __name__ == "__main__":
-    main()
+    main('../noteData/GuitarSet/train/')

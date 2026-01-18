@@ -1,22 +1,16 @@
-import json
+import os
+import sys
+
+
+sys.path.append(os.path.abspath(''))
+import multiprocessing as mp
+import os
+import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import beta, shapiro, bartlett, levene, f_oneway
 from typing import Dict, List, Tuple
-
-
-def load_betas_from_json(filename: str) -> Dict[str, List[float]]:
-    """
-    Load beta values from a JSON file.
-
-    Args:
-        filename: Path to the JSON file containing beta values
-
-    Returns:
-        Dictionary containing beta values organized by string
-    """
-    with open(filename, 'r') as file:
-        return json.load(file)
+from collections import defaultdict
 
 
 def check_variance_homogeneity(string_values: List[np.ndarray],
@@ -67,17 +61,12 @@ def perform_welch_anova(string_values: List[np.ndarray]) -> Tuple[float, float]:
     return f_stat, p_value_anova
 
 
-def plot_beta_distributions(betas: Dict[str, List[float]]) -> List[np.ndarray]:
+def plot_beta_distributions(betas: Dict[int, List[float]]) -> List[np.ndarray]:
     """
     Plot histograms of beta values for each guitar string with relative frequencies.
 
-    This function:
-    1. Filters beta values to the range [0, 0.001]
-    2. Prints the number of valid cases per string
-    3. Creates histograms showing the relative frequency distribution
-
     Args:
-        betas: Dictionary containing beta values for each string
+        betas: Dictionary containing beta values for each string (keys are integers 0-5)
 
     Returns:
         List of arrays containing filtered beta values for each string
@@ -85,12 +74,15 @@ def plot_beta_distributions(betas: Dict[str, List[float]]) -> List[np.ndarray]:
     colors = ['skyblue', 'red', 'green', 'orange', 'purple', 'brown']
     string_values = []
 
-    # Process each string (1 to 6)
-    for string_index in range(1, 7):
-        string_name = f"Saite_{string_index}"
+    # Create histogram plot
+    # plt.figure(figsize=(8, 5))
+
+    # Process each string present in the dictionary
+    for string_index in sorted(betas.keys()):
+        string_name = f"String {string_index}"
 
         # Filter values to the valid range [0, 0.001]
-        values = np.array([w for w in betas.get(string_name, []) if 0 <= w <= 0.001])
+        values = np.array([w for w in betas.get(string_index, []) if 0 <= w <= 1e-4])
 
         # Print case count for this string
         case_count = len(values)
@@ -102,17 +94,17 @@ def plot_beta_distributions(betas: Dict[str, List[float]]) -> List[np.ndarray]:
             continue
 
         string_values.append(values)
-        color = colors[string_index - 1]
+        color = colors[string_index % len(colors)]  # Handle index safely
 
         # Calculate histogram with absolute frequencies
-        hist_values, bins = np.histogram(values, bins=100, density=False)
+        hist_values, bins = np.histogram(values, bins=200, density=False)
         bin_centers = (bins[:-1] + bins[1:]) / 2
         bin_width = np.diff(bins)
 
         # Convert to relative frequencies (sum to 1)
         hist_values_rel = hist_values / np.sum(hist_values)
 
-        # Create histogram plot
+        # # Create histogram plot
         plt.figure(figsize=(8, 5))
         plt.bar(bin_centers, hist_values_rel, width=bin_width[0], alpha=0.6,
                 color=color, edgecolor='black', label="Relative Frequency")
@@ -121,19 +113,42 @@ def plot_beta_distributions(betas: Dict[str, List[float]]) -> List[np.ndarray]:
         plt.xlabel('Beta Values')
         plt.ylabel('Relative Frequency')
         plt.legend()
-        plt.xlim(0, 0.001)  # Set x-axis limits to focus on relevant range
-        plt.show()
+        plt.xlim(0, 1e-4)
+    plt.show()
 
     return string_values
 
 
 def main():
-    # Load beta values from file
-    filename = '../content/Betas/betas.json'
-    betas = load_betas_from_json(filename)
+    track_directory = '../noteData/GuitarSet/train/dev/'
 
-    # Plot distributions and get filtered values
-    string_values = plot_beta_distributions(betas)
+    filepaths = [
+        os.path.join(track_directory, filename)
+        for filename in os.listdir(track_directory)
+        if os.path.isfile(os.path.join(track_directory, filename))
+    ]
+
+    # Initialize dictionary to collect betas by string index
+    betas_by_string = {i: [] for i in range(6)}
+
+    for filepath in filepaths:
+        with open(filepath, "rb") as f:
+            track = pickle.load(f)
+
+        for note in track.notes:
+            if note.match is not True:
+                continue
+            if note.features is None:
+                continue
+            if note.features.betas is None:
+                continue
+
+            string_index = note.attributes.string_index
+            betas_by_string[string_index].extend(note.features.betas)
+
+    string_values = plot_beta_distributions(betas_by_string)
+
+
 
     # Perform statistical tests if we have multiple strings with noteData
     if len(string_values) > 1:

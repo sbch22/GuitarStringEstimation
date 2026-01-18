@@ -14,6 +14,19 @@ import pickle
 
 
 def instantaneous_frequency(frames, W, H, sr, window):
+    """
+    Calculates the instantaneous frequency of all passed frames for all possible bins.
+
+    Args:
+        frames: np.ndarray collecting all frames of raw audio data
+        W: STFT-Window size
+        H: Hop sizze
+        sr: sampling_rate
+        window: Hann or other type window with width W, for normalization
+
+    Returns:
+
+    """
     # FFT
     fft_frames = np.fft.rfft(frames, axis=1)  # (n_frames, n_bins)
     phase = np.angle(fft_frames)
@@ -41,7 +54,6 @@ def instantaneous_frequency(frames, W, H, sr, window):
     return inst_freq, inst_amp
 
 
-
 def partial_picker(inst_freq, inst_amp, f0, k_f0, beta_max, n_partials, sr, W, threshold):
     n_frames, n_bins = inst_freq.shape
 
@@ -53,6 +65,9 @@ def partial_picker(inst_freq, inst_amp, f0, k_f0, beta_max, n_partials, sr, W, t
     # Partial orders: partial 0 = fundamental
     partial_orders = np.arange(0, n_partials)
     harmonic_orders = partial_orders + 1
+
+    # limit bin to nyquist freq
+    bin_nyquist = W // 2
 
     # Expected partial frequency for each partial
     f_expected = harmonic_orders * f0
@@ -66,22 +81,24 @@ def partial_picker(inst_freq, inst_amp, f0, k_f0, beta_max, n_partials, sr, W, t
     # Loop over partials (vectorized over frames inside)
     for p_idx, (b_exp, b_max_allowed) in enumerate(zip(bin_expected, bin_max)):
 
+        # wenn
+        if p_idx == 0:
+            b_exp = b_exp - 1
         # clamp bins
-        b_exp = max(b_exp, 0)
-        b_max_allowed = min(b_max_allowed, n_bins - 1)
+        b_min = max(b_exp, 0)
+        b_max_allowed = min(b_max_allowed, bin_nyquist)
 
-        if b_exp > b_max_allowed:
-            # invalid partial range
+        if b_min > b_max_allowed:
             continue
 
         # region for all frames
-        amp_region = inst_amp[:, b_exp:b_max_allowed+1]             # shape (frames, region_bins)
-        freq_region = inst_freq[:, b_exp:b_max_allowed+1]           # same shape
+        amp_region = inst_amp[:, b_min:b_max_allowed+1]             # shape (frames, region_bins)
+        freq_region = inst_freq[:, b_min:b_max_allowed+1]           # same shape
 
         # max amplitude in allowed region (per frame)
         local_argmax = np.argmax(amp_region, axis=1)                # (frames,)
         max_amp = amp_region[np.arange(n_frames), local_argmax]     # (frames,)
-        max_bin = b_exp + local_argmax                              # (frames,)
+        max_bin = b_min + local_argmax                              # (frames,)
         max_freq = freq_region[np.arange(n_frames), local_argmax]   # (frames,)
 
         # convert amplitude to dB
@@ -89,6 +106,7 @@ def partial_picker(inst_freq, inst_amp, f0, k_f0, beta_max, n_partials, sr, W, t
 
         # accept only amplitudes over threshold
         valid = max_amp_db > threshold
+
 
         # fill into outputs
         partial_freqs[valid, p_idx] = max_freq[valid]
@@ -103,17 +121,29 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot):
     string_hex_audio = track.audio.hex_debleeded
     sr = string_hex_audio.sampling_rate
 
+    good_notes_before = [n for n in track.notes if n.origin == "model" and n.match == True]
+
+    # clean up mis-assigned string ntoes
+    ratio_deleted_noted = track.match_notes_between_strings(string_hex_audio, 0.05, track.notes)
+
+    good_notes_after = [n for n in track.notes if n.origin == "model" and n.match == True]
+
     # 6 x n_samples Matrix
     strings_audio_matrix = string_hex_audio.time
 
-    for note in track.notes:
+    for note in good_notes_after:
         # extract note audio from
         onset_sample = int(note.attributes.onset * sr)
         offset_sample = int(note.attributes.offset * sr)
         # valid notes
-        if  note.match is not True or note.attributes.pitch is None or offset_sample - onset_sample < W :
+        if  note.match is not True or note.attributes.midi_note is None or offset_sample - onset_sample < W :
+            continue # use only model notes
+
+        if note.origin != "model":
             continue
 
+        noteMIDI = round(note.attributes.midi_note)
+        note.attributes.pitch = (440 / 32) * (2 ** ((noteMIDI - 9) / 12))
 
         k_f0 = int(note.attributes.pitch * W / sr)
 
@@ -146,7 +176,7 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot):
             n_partials=n_partials,
             sr=sr,
             W=W,
-            threshold = -50,
+            threshold = -60,
         )
 
         # Zeitachse
@@ -186,8 +216,6 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot):
             plt.tight_layout()
             plt.show()
 
-
-
             # --- 1. Line Plot ---
             plt.figure(figsize=(14, 7))
             for p_idx in range(partial_freqs.shape[1]):
@@ -220,7 +248,7 @@ def process_single_file(args):
             track = pickle.load(f)
 
         # Process track
-        process_track_extract_partials(track, W, H, beta_max, n_partials=30, plot=False)
+        process_track_extract_partials(track, W, H, beta_max, n_partials=25, plot=True)
 
         # Save track
         track.save(filepath)
@@ -233,10 +261,10 @@ def process_single_file(args):
 
 
 def main():
-    track_directory = '../noteData/'
+    track_directory = '../noteData/GuitarSet/train/dev/'
 
     # Parameters
-    W = 1024
+    W = 2048
     H = int(W / 8)
     beta_max = 1e-4
 

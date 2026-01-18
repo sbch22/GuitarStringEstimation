@@ -7,6 +7,7 @@ from collections import defaultdict
 from gse.src.utils.FeatureNote_dataclass import FeatureNote, Attributes, Features
 from gse.src.utils.Track_dataclass import Track, TrackAudio
 import pyfar as pf
+import csv
 
 def create_track_from_jam(jam_file: str, track_id: str) -> Track:
     jam = jams.load(jam_file)
@@ -66,6 +67,7 @@ def load_track_audio(track: Track, data_dir: str):
         "mono_mic": os.path.join(data_dir, "audio_mono-mic", f"{base_name}_mic.wav"),
         "hex_debleeded": os.path.join(data_dir, "audio_hex-pickup_debleeded", f"{base_name}_hex_cln.wav"),
         "hex_mono_mix": os.path.join(data_dir, "audio_mono-pickup_mix", f"{base_name}_mix.wav"),
+        "hex": os.path.join(data_dir, "audio_hex-pickup_original", f"{base_name}_hex.wav"),
     }
 
     for attr, file_path in paths.items():
@@ -79,23 +81,69 @@ def preprocess_dataset(data_dir, save_dir):
     all_ann_files = glob.glob(os.path.join(data_dir, 'annotation/*.jams'), recursive=True)
     assert len(all_ann_files) == 360
 
-    for ann_file in all_ann_files:
-        # Convert all annotations to notes and note events
-        guitarset_id = os.path.basename(ann_file).split('.')[0]
+    # load Senva train file list
+    with open('../../data/GuitarSet/GuitarStringSeparation-MF-NMF-NMFD-master/trainSet.csv', newline='') as csvfile:
+        train_filename_list = []
+        spamreader = csv.reader(csvfile)
+        for row in spamreader:
+            path_csv = row[:]
+            filename = path_csv.pop()
+            train_filename_list.append(filename)
 
-        track = create_track_from_jam(ann_file, guitarset_id)
+            # also load solo file
+            filename_solo = filename.replace("comp", "solo")
+            train_filename_list.append(filename_solo)
+
+
+    for train_filename in train_filename_list:
+        filebase = train_filename.split(".wav")[0]
+        guitarset_id = filebase.split("_hex")[0]
+        # load according jams file
+        ann_filename = os.path.join(data_dir, 'annotation', guitarset_id + ".jams")
+
+        track = create_track_from_jam(ann_filename, guitarset_id)
         load_track_audio(track, data_dir) # load all needed audio files
+
+        # print(Track.__module__)
+
+        track_filename = os.path.basename(ann_filename).replace('.jams', '_track.pkl')
+        save_path = os.path.join(save_dir, 'GuitarSet', 'train',  track_filename)
+        track.save(save_path)
+        print(f'Saved track object: {save_path}')
+
+
+    # load Senva test file list
+    with open('../../data/GuitarSet/GuitarStringSeparation-MF-NMF-NMFD-master/testSet.csv', newline='') as csvfile:
+        test_filename_list = []
+        spamreader = csv.reader(csvfile)
+        for row in spamreader:
+            path_csv = row[:]
+            filename = path_csv.pop()
+            test_filename_list.append(filename)
+
+            # also load solo file
+            filename.replace("comp", "solo")
+            train_filename_list.append(filename)
+
+    for test_filename in test_filename_list:
+        filebase = test_filename.split(".wav")[0]
+        guitarset_id = filebase.split("_hex")[0]
+        # load according jams file
+        ann_filename = os.path.join(data_dir, 'annotation', guitarset_id + ".jams")
+
+        track = create_track_from_jam(ann_filename, guitarset_id)
+        load_track_audio(track, data_dir)  # load all needed audio files
 
         print(Track.__module__)
 
-        track_filename = os.path.basename(ann_file).replace('.jams', '_track.pkl')
-        save_path = os.path.join(save_dir, track_filename)
+        track_filename = os.path.basename(ann_filename).replace('.jams', '_track.pkl')
+        save_path = os.path.join(save_dir, 'GuitarSet', 'test', track_filename)
         track.save(save_path)
         print(f'Saved track object: {save_path}')
 
 # Main
 def main():
-    data_dir = '../../data/guitarset_yourmt3_16k'
+    data_dir = '../../data/GuitarSet/guitarset_yourmt3_16k'
     save_dir = '../noteData/'
     preprocess_dataset(data_dir, save_dir)
 

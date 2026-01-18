@@ -20,12 +20,7 @@ class Attributes:
     velocity: Optional[int] = None
     contour: List[Tuple[float, float]] = field(default_factory=list)
     string_index: Optional[int] = None
-
-    @staticmethod
-    def fill_missing_attributes(features: List[Features]) -> List[Features]:
-        # Todo: fill attributes like midi -> pitch, string name etc.
-        return features
-
+    fret: Optional[float] = None
 
 
 @dataclass
@@ -50,3 +45,10 @@ class FeatureNote:
     estimated_string: Optional[int] = None
 
     partials: Optional[Partials] = None
+
+    def delete_from(self, notes: list):
+        """
+        Remove this note from a list of FeatureNote objects.
+        """
+        if self in notes:
+            notes.remove(self)

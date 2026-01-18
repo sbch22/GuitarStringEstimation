@@ -743,8 +743,8 @@ def plot_frequency_traces(frame_times, model_freqs, contour_fundamentals, phase_
 def filter_outliers_iqr(beta_values, debug=False):
     """Filter outliers from beta values using IQR method."""
     beta_array = np.array(beta_values)
-    Q1 = np.quantile(beta_array, 0.1)
-    Q3 = np.quantile(beta_array, 0.9)
+    Q1 = np.quantile(beta_array, 0.25)
+    Q3 = np.quantile(beta_array, 0.75)
     IQR = Q3 - Q1
     lower_bound = Q1 - 1.5 * IQR
     upper_bound = Q3 + 1.5 * IQR
