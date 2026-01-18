@@ -15,6 +15,7 @@ class TrackAudio:
     mono_mic: Optional[pf.Signal] = None
     hex_debleeded: Optional[pf.Signal] = None
     hex_mono_mix: Optional[pf.Signal] = None
+    hex: Optional[pf.Signal] = None
 
 
 @dataclass
@@ -23,6 +24,7 @@ class Track:
     audio: Optional[TrackAudio] = None
     notes: List["FeatureNote"] = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
+
 
     def save(self, path: str):
         """Save the track (and its notes) to disk."""
@@ -152,7 +154,65 @@ class Track:
                     continue
                 time_diff = abs(pred.attributes.onset - gt.attributes.onset)
                 if time_diff <= delta:
-                    best_pred = pred
                     pred.match = True
                     gt.match = True
                     gt.attributes.string_index = pred.attributes.string_index
+
+    @staticmethod
+    def match_notes_between_strings(track_audio, delta: float, all_notes: List['FeatureNote']):
+        """
+        Look through notes in track and find mismatch between strings
+        """
+        # Separate GT and predicted notes
+        pred_notes = [n for n in all_notes if n.origin == "model"]
+
+        notes_to_remove = []
+
+        for i, pred in enumerate(pred_notes):
+            for pred2 in pred_notes[i + 1:]:
+                # same string -> skip
+                if pred.attributes.string_index == pred2.attributes.string_index:
+                    continue
+                # different program -> skip
+                if pred.attributes.program != pred2.attributes.program:
+                    continue
+                # different note -> skip
+                if pred.attributes.midi_note != pred2.attributes.midi_note:
+                    continue
+
+                time_diff = abs(pred.attributes.onset - pred2.attributes.onset)
+                if time_diff > delta:
+                    continue
+
+                # compute energy for both notes
+                onset_sample_1 = int(pred.attributes.onset * track_audio.sampling_rate)
+                offset_sample_1 = int(pred.attributes.offset * track_audio.sampling_rate)
+
+                onset_sample_2 = int(pred2.attributes.onset * track_audio.sampling_rate)
+                offset_sample_2 = int(pred2.attributes.offset * track_audio.sampling_rate)
+
+                audio_1 = track_audio.time[pred.attributes.string_index, onset_sample_1:offset_sample_1]
+                audio_2 = track_audio.time[pred2.attributes.string_index, onset_sample_2:offset_sample_2]
+
+                energy_1 = pf.dsp.energy(pf.Signal(audio_1, sampling_rate=track_audio.sampling_rate))
+                energy_2 = pf.dsp.energy(pf.Signal(audio_2, sampling_rate=track_audio.sampling_rate))
+
+                # mark weaker note for removal
+                if energy_1[:] >= energy_2[:]:
+                    if pred2 not in notes_to_remove:
+                        notes_to_remove.append(pred2)
+                else:
+                    if pred not in notes_to_remove:
+                        notes_to_remove.append(pred)
+
+        n_false_notes = 0
+        # remove marked notes
+        for note in notes_to_remove:
+            # if note in all_notes:
+            #     all_notes.remove(note)
+            #     number_deleted_notes=number_deleted_notes+1
+            #set match to false
+            n_false_notes = n_false_notes + 1
+            note.match = False
+
+        return n_false_notes / len(pred_notes)

@@ -9,46 +9,101 @@ import pickle
 
 import numpy as np
 import matplotlib.pyplot as plt
+from utils.FeatureNote_dataclass import Features
 
 
-def filter_betas(betas):
+def filter_betas(betas, beta_max):
+    """Filter outliers from beta array using IQR method."""
     valid = ~np.isnan(betas)
     valid_betas = betas[valid]
 
-    # Todo: IQR filter
+    # Handle empty case
+    if len(valid_betas) == 0:
+        return []
 
-    return valid_betas
+    # Handle single value case
+    if len(valid_betas) == 1:
+        return valid_betas.tolist()
 
-def estimate_inharmonicity_coefficient(partials, beta_max, plot):
+    # IQR filter
+    Q1 = np.quantile(valid_betas, 0.25)
+    Q3 = np.quantile(valid_betas, 0.75)
+    IQR = Q3 - Q1
+
+    # Handle zero IQR (all values identical)
+    if IQR == 0:
+        return valid_betas.tolist()
+
+    lower_bound = Q1 - 1.5 * IQR
+    upper_bound = Q3 + 1.5 * IQR
+
+    filtered_values = valid_betas[
+        (valid_betas >= lower_bound) & (valid_betas <= upper_bound)
+        ].tolist()
+
+    # filter to remove invalid betas before postprocessing
+    filtered_values = [beta for beta in filtered_values if 0.0 < beta < beta_max]
+
+    return filtered_values
+
+
+def estimate_inharmonicity_coefficient_iterative(
+    partials,
+    beta_max,
+    n_iter=1000,
+    tol=1e-9,
+    plot=False,
+):
     freqs = partials.frequencies  # (T, K)
     T, K = freqs.shape
 
     betas = np.full(T, np.nan)
-
-    # fixed partial indices (1-based)
     k_full = np.arange(1, K + 1)
+
+    beta = 1e-5 # start harmonic
 
     for i in range(T):
         f_k = freqs[i]
-
         valid = ~np.isnan(f_k)
 
-        # need enough valid partials
-        if np.sum(valid) < 5:
+        if np.sum(valid) < 10:
             continue
 
+        # ndarray with order of valid partials
         k = k_full[valid]
         f = f_k[valid]
 
-        f0 = f[0]  # assumes fundamental exists
+        # funamental not found
+        if k[0] != 1:
+            continue
 
-        delta_f = f - k * f0
+        #TODO: interpolate between valid frames
 
-        X = np.vstack([k**3, k, np.ones_like(k)]).T
-        coeffs, _, _, _ = np.linalg.lstsq(X, delta_f, rcond=None)
-        a, b, c = coeffs
+        # initial f0 estimate
+        f0 = f[0]
 
-        beta = np.clip(2 * a / f0, 0.0, beta_max)
+        for _ in range(n_iter):
+            # expected partial frequencies using current beta
+
+            # throws an error of beta is negative -> complex frequency
+            f_expected = k * f0 * np.sqrt(1 + beta * k**2)
+
+            # deviations
+            delta_f = f - f_expected
+
+            # polynomial fit
+            X = np.vstack([k**3, k, np.ones_like(k)]).T
+            a, b, c = np.linalg.lstsq(X, delta_f, rcond=None)[0]
+
+            beta_new = 2 * a / (f0 + b)
+
+            # convergence check
+            if np.abs(beta_new - beta) < tol:
+                beta = beta_new
+                break
+
+            beta = beta_new
+
         betas[i] = beta
 
         if plot:
@@ -56,23 +111,60 @@ def estimate_inharmonicity_coefficient(partials, beta_max, plot):
             delta_fit = a * k_fit**3 + b * k_fit + c
 
             plt.figure(figsize=(6, 4))
-            plt.scatter(k, delta_f)
-            plt.plot(k_fit, delta_fit)
+            plt.scatter(k, delta_f, label="measured")
+            plt.plot(k_fit, delta_fit, label="fit")
             plt.xlabel("partial index k")
             plt.ylabel("Δfₖ (Hz)")
             plt.title(f"t={i}, β={beta:.2e}")
+            plt.legend()
             plt.tight_layout()
             plt.show()
 
-    # filter betas
-    betas = filter_betas(betas)
+    betas = filter_betas(betas, beta_max)
+
     return betas
 
+
+def process_single_file(args):
+    filepath, beta_max = args
+
+    try:
+        with open(filepath, "rb") as f:
+            track = pickle.load(f)
+
+        # not all notes are created equal. Some do not have partials ...
+        for note in track.notes:
+            if note.match is not True:
+                continue
+            if note.origin != 'model':
+                continue
+            if note.partials is None:
+                continue
+            if note.partials.frequencies is None:
+                continue
+
+            betas = estimate_inharmonicity_coefficient_iterative(note.partials, beta_max, plot=False)
+
+            if note.features is None:
+                note.features = Features()
+
+            note.features.betas = betas
+
+        track.save(filepath)
+        print(f"pickled beta-calculated note object into {filepath}.")
+
+        filename = os.path.basename(filepath)
+        return f"Success: {filename}"
+
+    except Exception as e:
+        return f"Error processing {filepath}: {str(e)}"
+
+
 def main():
-    track_directory = '../noteData/'
+    track_directory = '../noteData/GuitarSet/train/dev/'
 
     # Parameters
-    beta_max = 1e-3
+    beta_max = 1e-4
 
     # Collect all file paths
     filepaths = [
@@ -81,27 +173,18 @@ def main():
         if os.path.isfile(os.path.join(track_directory, filename))
     ]
 
-    # TODO: implement parallelization via multiprocessing
-    for filepath in filepaths:
-        with open(filepath, "rb") as f:
-            track = pickle.load(f)
+    args_list = [(fp, beta_max) for fp in filepaths]
 
-        # not all notes are created equal. Some do not have partials ...
-        for note in track.notes:
-            if note.match is not True:
-                continue
-            if note.partials is None:
-                continue
-            if note.partials.frequencies is None:
-                continue
+    # Create pool and process files
+    num_processes = mp.cpu_count() - 1  # Leave one core free
+    with mp.Pool(processes=num_processes) as pool:
+        results = pool.map(process_single_file, args_list)
 
-            betas = estimate_inharmonicity_coefficient(note.partials, beta_max, plot=False)
-
-            note.attributes.betas = betas
-
-        # Save track
-        track.save(filepath)
+    # Print results
+    for i, result in enumerate(results, 1):
+        print(f"[{i}/{len(results)}] {result}")
 
 
 if __name__ == "__main__":
+    mp.set_start_method("spawn", force=True)
     main()
