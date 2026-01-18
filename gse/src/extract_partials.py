@@ -11,6 +11,7 @@ from utils.FeatureNote_dataclass import Partials
 import multiprocessing as mp
 import os
 import pickle
+from scipy.signal import medfilt
 
 
 def instantaneous_frequency(frames, W, H, sr, window):
@@ -62,56 +63,86 @@ def partial_picker(inst_freq, inst_amp, f0, k_f0, beta_max, n_partials, sr, W, t
     partial_amps  = np.full((n_frames, n_partials), np.nan)
     partial_bins  = np.full((n_frames, n_partials), -1, dtype=int)
 
-    # Partial orders: partial 0 = fundamental
+    # Partial orders
     partial_orders = np.arange(0, n_partials)
     harmonic_orders = partial_orders + 1
 
-    # limit bin to nyquist freq
+    # Nyquist
     bin_nyquist = W // 2
 
-    # Expected partial frequency for each partial
-    f_expected = harmonic_orders * f0
-    f_min = f_expected * np.sqrt(1 - beta_max * harmonic_orders**2)
-    f_max = f_expected * np.sqrt(1 + beta_max * harmonic_orders**2)
+    # ----- 1. f0 pro Frame suchen -----
+    f0_frame = np.full(n_frames, np.nan)
+    prev_bin = None
 
-    # Convert frequency range to FFT bin range
-    bin_expected = (f_expected * W / sr).astype(int)
-    bin_max = (f_max * W / sr).astype(int)
+    for t in range(n_frames):
+        b_f0 = int(f0 * W / sr)
+        # asymmetrisches Fenster: nach unten breiter
+        b_lo = max(b_f0 - 5, 0) if prev_bin is None else max(prev_bin - 2, 0)
+        b_hi = min(b_f0 + 3, bin_nyquist) if prev_bin is None else min(prev_bin + 2, bin_nyquist)
 
-    # Loop over partials (vectorized over frames inside)
-    for p_idx, (b_exp, b_max_allowed) in enumerate(zip(bin_expected, bin_max)):
-
-        # wenn
-        if p_idx == 0:
-            b_exp = b_exp - 1
-        # clamp bins
-        b_min = max(b_exp, 0)
-        b_max_allowed = min(b_max_allowed, bin_nyquist)
-
-        if b_min > b_max_allowed:
+        amp_region = inst_amp[t, b_lo:b_hi+1]
+        if amp_region.size == 0:
             continue
 
-        # region for all frames
-        amp_region = inst_amp[:, b_min:b_max_allowed+1]             # shape (frames, region_bins)
-        freq_region = inst_freq[:, b_min:b_max_allowed+1]           # same shape
+        idx0 = np.argmax(amp_region)
+        f0_t = inst_freq[t, b_lo + idx0]
+        f0_frame[t] = f0_t
+        prev_bin = b_lo + idx0  # 6. letzes Fenster als Startwert
 
-        # max amplitude in allowed region (per frame)
-        local_argmax = np.argmax(amp_region, axis=1)                # (frames,)
-        max_amp = amp_region[np.arange(n_frames), local_argmax]     # (frames,)
-        max_bin = b_min + local_argmax                              # (frames,)
-        max_freq = freq_region[np.arange(n_frames), local_argmax]   # (frames,)
+    # ----- 2. f0 glätten -----
+    # Medianfilter über 5 Frames
+    f0_frame = medfilt(f0_frame, kernel_size=5)
 
-        # convert amplitude to dB
-        max_amp_db = 20 * np.log10(max_amp + 1e-12)
+    # ----- 3. Partials pro Frame bestimmen -----
+    max_jump_hz = 20  # maximale Sprungweite zwischen Frames (zeitkontinuität)
 
-        # accept only amplitudes over threshold
-        valid = max_amp_db > threshold
+    for t in range(n_frames):
+        if np.isnan(f0_frame[t]):
+            continue
 
+        f0_t = f0_frame[t]
 
-        # fill into outputs
-        partial_freqs[valid, p_idx] = max_freq[valid]
-        partial_amps[valid, p_idx]  = max_amp_db[valid]
-        partial_bins[valid, p_idx]  = max_bin[valid]
+        for p_idx, h in enumerate(harmonic_orders):
+            # erwartete Partialfrequenz
+            f_expected = h * f0_t
+            f_min = f_expected * np.sqrt(1 - beta_max * h**2)
+            f_max = f_expected * np.sqrt(1 + beta_max * h**2)
+
+            # bin Bereich
+            b_exp = int(f_expected * W / sr)
+            b_lo = max(int(f_min * W / sr), 0)
+            b_hi = min(int(f_max * W / sr), bin_nyquist)
+
+            # nur minimal 1 bin
+            if b_hi < b_lo:
+                b_hi = b_lo + 1
+
+            amp_region = inst_amp[t, b_lo:b_hi+1]
+            freq_region = inst_freq[t, b_lo:b_hi+1]
+
+            if amp_region.size == 0:
+                continue
+
+            idx = np.argmax(amp_region)
+            amp = amp_region[idx]
+            freq = freq_region[idx]
+
+            # 4. Zeitkontinuität prüfen
+            if t > 0 and not np.isnan(partial_freqs[t-1, p_idx]):
+                if abs(freq - partial_freqs[t-1, p_idx]) > max_jump_hz:
+                    freq = partial_freqs[t-1, p_idx]
+                    amp = partial_amps[t-1, p_idx]
+                    idx = partial_bins[t-1, p_idx] - b_lo  # passt ungefähr
+
+            # Threshold prüfen
+            amp_db = 20 * np.log10(amp + 1e-12)
+            if amp_db <= threshold:
+                continue
+
+            # Ausgeben
+            partial_freqs[t, p_idx] = freq
+            partial_amps[t, p_idx] = amp_db
+            partial_bins[t, p_idx] = b_lo + idx
 
     return partial_freqs, partial_amps, partial_bins
 
@@ -248,7 +279,7 @@ def process_single_file(args):
             track = pickle.load(f)
 
         # Process track
-        process_track_extract_partials(track, W, H, beta_max, n_partials=25, plot=True)
+        process_track_extract_partials(track, W, H, beta_max, n_partials=25, plot=False)
 
         # Save track
         track.save(filepath)
@@ -264,7 +295,7 @@ def main():
     track_directory = '../noteData/GuitarSet/train/dev/'
 
     # Parameters
-    W = 2048
+    W = 1600
     H = int(W / 8)
     beta_max = 1e-4
 
