@@ -50,10 +50,10 @@ def filter_betas(betas, beta_max):
 def estimate_inharmonicity_coefficient_iterative(
     partials,
     beta_max,
-    n_iter=1000,
+    n_iter=200,
     tol=1e-9,
     plot=False,
-    amp_threshold_db = -30
+    amp_threshold_db = -35
 ):
     freqs = partials.frequencies  # (T, K)
     amps = partials.amplitudes
@@ -67,9 +67,15 @@ def estimate_inharmonicity_coefficient_iterative(
     for i in range(T):
         f_k = freqs[i]
         a_k = amps[i]
-        valid = (~np.isnan(f_k)) & (a_k > amp_threshold_db)
 
-        if np.sum(valid) < 10:
+        amp_ref_db = a_k[0]  # in dB, der Grundton
+        rel_thresh_db = amp_ref_db - 30  # akzeptiere alle Partials > 30 dB unter f0
+
+        valid = (~np.isnan(f_k)) & (a_k > rel_thresh_db)
+
+        # valid = (~np.isnan(f_k)) & (a_k > amp_threshold_db)
+
+        if np.sum(valid) < 8:
             continue
 
         k = k_full[valid]
@@ -77,13 +83,16 @@ def estimate_inharmonicity_coefficient_iterative(
 
         # initial f0 estimate
         f0 = f[0] / k[0]  # aus erstem Partial rekonstruiert
+        # if np.isnan(f0):
+        #     next_valid = np.where(~np.isnan(f))[0]
+        #     if next_valid.size > 0:
+        #         p = next_valid[0]
+        #         f0 = f[p] / k[p] / np.sqrt(1 + beta * k[p] ** 2)
+        #     else:
+        #         continue  # nichts gefunden
         if np.isnan(f0):
-            next_valid = np.where(~np.isnan(f))[0]
-            if next_valid.size > 0:
-                p = next_valid[0]
-                f0 = f[p] / k[p] / np.sqrt(1 + beta * k[p] ** 2)
-            else:
-                continue  # nichts gefunden
+            break
+
 
         # iterative beta-Schätzung
         for _ in range(n_iter):
@@ -114,7 +123,6 @@ def estimate_inharmonicity_coefficient_iterative(
             plt.show()
 
     betas = filter_betas(betas, beta_max)
-
     return betas
 
 
@@ -136,7 +144,7 @@ def process_single_file(args):
             if note.partials.frequencies is None:
                 continue
 
-            betas = estimate_inharmonicity_coefficient_iterative(note.partials, beta_max, plot=False)
+            betas = estimate_inharmonicity_coefficient_iterative(note.partials, beta_max, plot=True)
 
             if note.features is None:
                 note.features = Features()

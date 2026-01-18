@@ -152,17 +152,12 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot):
     string_hex_audio = track.audio.hex_debleeded
     sr = string_hex_audio.sampling_rate
 
-    good_notes_before = [n for n in track.notes if n.origin == "model" and n.match == True]
 
-    # clean up mis-assigned string ntoes
-    ratio_deleted_noted = track.match_notes_between_strings(string_hex_audio, 0.05, track.notes)
-
-    good_notes_after = [n for n in track.notes if n.origin == "model" and n.match == True]
 
     # 6 x n_samples Matrix
     strings_audio_matrix = string_hex_audio.time
 
-    for note in good_notes_after:
+    for note in track.notes:
         # extract note audio from
         onset_sample = int(note.attributes.onset * sr)
         offset_sample = int(note.attributes.offset * sr)

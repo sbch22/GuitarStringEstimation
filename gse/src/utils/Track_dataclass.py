@@ -206,12 +206,9 @@ class Track:
                         notes_to_remove.append(pred)
 
         n_false_notes = 0
-        # remove marked notes
+
+        # remove match-toggle from matched note
         for note in notes_to_remove:
-            # if note in all_notes:
-            #     all_notes.remove(note)
-            #     number_deleted_notes=number_deleted_notes+1
-            #set match to false
             n_false_notes = n_false_notes + 1
             note.match = False
 
