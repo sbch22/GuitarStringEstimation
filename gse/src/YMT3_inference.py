@@ -308,6 +308,13 @@ def process_track(track, model):
     delta_seconds = 0.050  # <-- 50 ms
     track.match_notes(delta_seconds, track.notes)
 
+    string_hex_audio = track.audio.hex_debleeded
+    good_notes_before = [n for n in track.notes if n.origin == "model" and n.match == True]
+    track.match_notes_between_strings(string_hex_audio, 0.05, track.notes)
+    good_notes_after = [n for n in track.notes if n.origin == "model" and n.match == True]
+    notes_misclassified_through_bleed = len(good_notes_before) - len(good_notes_after)
+    print(notes_misclassified_through_bleed)
+
     matched_notes = [n for n in track.notes if n.match]
     unmatched_notes = [n for n in track.notes if not n.match]
 
@@ -358,7 +365,7 @@ def main(track_directory):
 
     file_counter = 0
 
-    files_to_analyze = 10
+    files_to_analyze = 20
 
     # Process each audio file in the directory
     for filename in os.listdir(track_directory):
