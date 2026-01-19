@@ -52,8 +52,8 @@ def estimate_inharmonicity_coefficient_iterative(
     beta_max,
     n_iter=200,
     tol=1e-9,
-    plot=False,
-    amp_threshold_db = -35
+    plot=True,
+    amp_threshold_db = -50
 ):
     freqs = partials.frequencies  # (T, K)
     amps = partials.amplitudes
@@ -62,20 +62,15 @@ def estimate_inharmonicity_coefficient_iterative(
     betas = np.full(T, np.nan)
     k_full = np.arange(1, K + 1)
 
-    beta = 1e-5 # start harmonic
+    beta = 5e-5 # start harmonic
 
     for i in range(T):
         f_k = freqs[i]
         a_k = amps[i]
 
-        amp_ref_db = a_k[0]  # in dB, der Grundton
-        rel_thresh_db = amp_ref_db - 30  # akzeptiere alle Partials > 30 dB unter f0
+        valid = (~np.isnan(f_k)) & (a_k > amp_threshold_db)
 
-        valid = (~np.isnan(f_k)) & (a_k > rel_thresh_db)
-
-        # valid = (~np.isnan(f_k)) & (a_k > amp_threshold_db)
-
-        if np.sum(valid) < 8:
+        if np.sum(valid) < 10:
             continue
 
         k = k_full[valid]
@@ -144,7 +139,7 @@ def process_single_file(args):
             if note.partials.frequencies is None:
                 continue
 
-            betas = estimate_inharmonicity_coefficient_iterative(note.partials, beta_max, plot=True)
+            betas = estimate_inharmonicity_coefficient_iterative(note.partials, beta_max, plot=False)
 
             if note.features is None:
                 note.features = Features()
