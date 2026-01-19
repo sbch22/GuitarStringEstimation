@@ -50,58 +50,55 @@ def filter_betas(betas, beta_max):
 def estimate_inharmonicity_coefficient_iterative(
     partials,
     beta_max,
-    n_iter=1000,
+    n_iter=200,
     tol=1e-9,
-    plot=False,
+    plot=True,
+    amp_threshold_db = -50
 ):
     freqs = partials.frequencies  # (T, K)
+    amps = partials.amplitudes
     T, K = freqs.shape
 
     betas = np.full(T, np.nan)
     k_full = np.arange(1, K + 1)
 
-    beta = 1e-5 # start harmonic
+    beta = 5e-5 # start harmonic
 
     for i in range(T):
         f_k = freqs[i]
-        valid = ~np.isnan(f_k)
+        a_k = amps[i]
+
+        valid = (~np.isnan(f_k)) & (a_k > amp_threshold_db)
 
         if np.sum(valid) < 10:
             continue
 
-        # ndarray with order of valid partials
         k = k_full[valid]
         f = f_k[valid]
 
-        # funamental not found
-        if k[0] != 1:
-            continue
-
-        #TODO: interpolate between valid frames
-
         # initial f0 estimate
-        f0 = f[0]
+        f0 = f[0] / k[0]  # aus erstem Partial rekonstruiert
+        # if np.isnan(f0):
+        #     next_valid = np.where(~np.isnan(f))[0]
+        #     if next_valid.size > 0:
+        #         p = next_valid[0]
+        #         f0 = f[p] / k[p] / np.sqrt(1 + beta * k[p] ** 2)
+        #     else:
+        #         continue  # nichts gefunden
+        if np.isnan(f0):
+            break
 
+
+        # iterative beta-Schätzung
         for _ in range(n_iter):
-            # expected partial frequencies using current beta
-
-            # throws an error of beta is negative -> complex frequency
-            f_expected = k * f0 * np.sqrt(1 + beta * k**2)
-
-            # deviations
+            f_expected = k * f0 * np.sqrt(1 + beta * k ** 2)
             delta_f = f - f_expected
-
-            # polynomial fit
-            X = np.vstack([k**3, k, np.ones_like(k)]).T
+            X = np.vstack([k ** 3, k, np.ones_like(k)]).T
             a, b, c = np.linalg.lstsq(X, delta_f, rcond=None)[0]
-
             beta_new = 2 * a / (f0 + b)
-
-            # convergence check
             if np.abs(beta_new - beta) < tol:
                 beta = beta_new
                 break
-
             beta = beta_new
 
         betas[i] = beta
@@ -121,7 +118,6 @@ def estimate_inharmonicity_coefficient_iterative(
             plt.show()
 
     betas = filter_betas(betas, beta_max)
-
     return betas
 
 
