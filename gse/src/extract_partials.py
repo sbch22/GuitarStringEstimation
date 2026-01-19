@@ -148,6 +148,8 @@ def partial_picker(inst_freq, inst_amp, f0, k_f0, beta_max, n_partials, sr, W, t
 
 
 
+
+
 def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot):
     string_hex_audio = track.audio.hex_debleeded
     sr = string_hex_audio.sampling_rate
@@ -186,10 +188,13 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot):
             print("Not enough frames for analysis")
             continue
 
+        # Padding
         note_audio = np.pad(note_audio, ((0, 0), (0, W - note_audio.shape[1])), mode='constant')
+        # Erst normalisieren
+        note_audio /= np.max(np.abs(note_audio), axis=1, keepdims=True)
+        # Dann fenstern
         window = scipy.signal.windows.hann(W, sym=False)
         note_audio = note_audio * window
-
         inst_freq, inst_amp = instantaneous_frequency(note_audio, W, H, sr, window)
 
         # pick best partials
@@ -202,8 +207,9 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot):
             n_partials=n_partials,
             sr=sr,
             W=W,
-            threshold = -60,
+            threshold = -50,
         )
+
 
         # Zeitachse
         t_frames = np.arange(partial_freqs.shape[0]) * (H / sr)
@@ -219,40 +225,41 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot):
             freqs = np.fft.rfftfreq(W, 1 / sr)
             times = np.arange(fft_mag_db.shape[0]) * (H / sr)
 
-            plt.figure(figsize=(14, 6))
+            plt.figure(figsize=(14, 8))
             plt.imshow(
                 fft_mag_db_if.T,
                 origin="lower",
                 aspect="auto",
                 extent=[times_if[0], times_if[-1], freqs[0], freqs[-1]],
                 cmap="magma",
-                vmin=-100,
-                vmax=0,
+                vmin=-60,
+                vmax=2,
             )
 
             # Overlay partials (now aligned)
             for p in range(partial_freqs.shape[1]):
-                plt.plot(times_if, partial_freqs[:, p], "c", linewidth=1.5)
+                plt.plot(times_if, partial_freqs[:, p], label=f"P{p}", linewidth=3)
 
             plt.colorbar(label="Magnitude (dB)")
-            plt.title(f"Spectrogram with Extracted Partials – {note.attributes.pitch:.2f} Hz")
+            plt.title(f"Spectrogram with Extracted Partials – {note.attributes.pitch:.2f} Hz, String: {note.attributes.string_index}")
             plt.xlabel("Time (s)")
             plt.ylabel("Frequency (Hz)")
-            plt.ylim(0, 5000)
-            plt.tight_layout()
-            plt.show()
-
-            # --- 1. Line Plot ---
-            plt.figure(figsize=(14, 7))
-            for p_idx in range(partial_freqs.shape[1]):
-                plt.plot(t_frames, partial_freqs[:, p_idx], label=f"P{p_idx}", linewidth=1.5)
-            plt.title(f"Instantaneous Partial Frequencies – Note: {note.attributes.pitch:0.2f} Hz")
-            plt.xlabel("Time (s)")
-            plt.ylabel("Frequency (Hz)")
-            plt.grid(True, alpha=0.3)
+            plt.ylim(0, 8000)
             plt.legend(ncol=4, fontsize=9)
             plt.tight_layout()
             plt.show()
+
+            # # --- 1. Line Plot ---
+            # plt.figure(figsize=(14, 7))
+            # for p_idx in range(partial_freqs.shape[1]):
+            #     plt.plot(t_frames, partial_freqs[:, p_idx], label=f"P{p_idx}", linewidth=1.5)
+            # plt.title(f"Instantaneous Partial Frequencies – Note: {note.attributes.pitch:0.2f} Hz")
+            # plt.xlabel("Time (s)")
+            # plt.ylabel("Frequency (Hz)")
+            # plt.grid(True, alpha=0.3)
+            # plt.legend(ncol=4, fontsize=9)
+            # plt.tight_layout()
+            # plt.show()
 
         # save into Partials object
         note.partials = Partials(
@@ -290,7 +297,7 @@ def main():
     track_directory = '../noteData/GuitarSet/train/dev/'
 
     # Parameters
-    W = 1600
+    W = 2048
     H = int(W / 8)
     beta_max = 1e-4
 
