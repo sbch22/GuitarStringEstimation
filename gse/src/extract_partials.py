@@ -12,6 +12,9 @@ import multiprocessing as mp
 import os
 import pickle
 from scipy.signal import medfilt
+import librosa as lb
+import sounddevice as sd
+
 
 
 def instantaneous_frequency(frames, W, H, sr, window):
@@ -76,9 +79,10 @@ def partial_picker(inst_freq, inst_amp, f0, k_f0, beta_max, n_partials, sr, W, t
 
     for t in range(n_frames):
         b_f0 = int(f0 * W / sr)
-        # asymmetrisches Fenster: nach unten breiter
-        b_lo = max(b_f0 - 5, 0) if prev_bin is None else max(prev_bin - 2, 0)
-        b_hi = min(b_f0 + 3, bin_nyquist) if prev_bin is None else min(prev_bin + 2, bin_nyquist)
+
+        # wide search range -> smaller search range
+        b_lo = max(b_f0 - 2, 0) if prev_bin is None else max(prev_bin - 1, 0)
+        b_hi = min(b_f0 + 2, bin_nyquist) if prev_bin is None else min(prev_bin + 1, bin_nyquist)
 
         amp_region = inst_amp[t, b_lo:b_hi+1]
         if amp_region.size == 0:
@@ -101,24 +105,23 @@ def partial_picker(inst_freq, inst_amp, f0, k_f0, beta_max, n_partials, sr, W, t
             continue
 
         f0_t = f0_frame[t]
+        tol = 1e-5
 
         for p_idx, h in enumerate(harmonic_orders):
             # erwartete Partialfrequenz
-            f_expected = h * f0_t
-            f_min = f_expected * np.sqrt(1 - beta_max * h**2)
-            f_max = f_expected * np.sqrt(1 + beta_max * h**2)
+            f_min = h * f0_t * (1 - tol)
+            f_max = h * f0_t * np.sqrt(1 + beta_max * h ** 2)
 
             # bin Bereich
-            b_exp = int(f_expected * W / sr)
-            b_lo = max(int(f_min * W / sr), 0)
-            b_hi = min(int(f_max * W / sr), bin_nyquist)
+            b_lo = max(int(f_min * W / sr) - 3, 0)
+            b_hi = min(int(f_max * W / sr) + 3, bin_nyquist)
 
             # nur minimal 1 bin
             if b_hi < b_lo:
                 b_hi = b_lo + 1
 
-            amp_region = inst_amp[t, b_lo:b_hi+1]
-            freq_region = inst_freq[t, b_lo:b_hi+1]
+            amp_region = inst_amp[t, b_lo:b_hi]
+            freq_region = inst_freq[t, b_lo:b_hi]
 
             if amp_region.size == 0:
                 continue
@@ -147,14 +150,101 @@ def partial_picker(inst_freq, inst_amp, f0, k_f0, beta_max, n_partials, sr, W, t
     return partial_freqs, partial_amps, partial_bins
 
 
+def extract_harmonic_note_audio(note_audio, W, H, sr, plot):
+    note_audio /= np.max(np.abs(note_audio))
+
+    # skip notes too short
+    if note_audio.size < W:
+        return None
+
+    # Onset detection in note
+    H_onset = int(H / 4)
+    kwargs = {
+        'pre_max': 2,
+        'post_max': 2,
+        'pre_avg': 1,
+        'post_avg': 1,
+        'delta': 0.2,  # größerer Wert = strengere Peaks
+        'wait': H_onset,  # z.B. ~1ms bei sr=44k
+    }
+
+    intra_onsets = lb.onset.onset_detect(
+        y=note_audio,
+        sr=sr,
+        hop_length=H_onset,
+        units='samples',
+        backtrack=False,
+        sparse=True,
+        **kwargs
+    )
+
+    # default harmonic region
+    note_len = len(note_audio)
+    harmonic_start = 0  # always original onset
+    harmonic_end = note_len  # default: keep full note
+
+    # first intra onset in second half of note
+    if len(intra_onsets) > 0:
+        second_half_onsets = intra_onsets[intra_onsets >= note_len / 2]
+
+        if len(second_half_onsets) > 0:
+            harmonic_end = int(second_half_onsets[0])
+
+    harmonic_audio = note_audio[harmonic_start:harmonic_end]
+
+    # safety check
+    if len(harmonic_audio) < W:
+        return None
+
+    # --- harmonic slice ---
+    harmonic_audio_raw = note_audio[harmonic_start:harmonic_end]
+
+    # window
+    harmonic_window = scipy.signal.windows.hann(
+        len(harmonic_audio_raw), sym=False
+    )
+    harmonic_audio_win = harmonic_audio_raw * harmonic_window
+
+    if plot:
+        plt.figure(figsize=(12, 3))
+
+        # 1) raw note (ungefenstert)
+        plt.plot(
+            np.arange(len(note_audio)),
+            note_audio,
+            color="black",
+            alpha=0.5,
+            linewidth=1.5,
+            label="note (raw)",
+        )
+
+        # 2) harmonic part (windowed, korrekt positioniert)
+        plt.plot(
+            np.arange(harmonic_start, harmonic_end),
+            harmonic_audio_win,
+            color="blue",
+            linewidth=2,
+            label="harmonic (hann-windowed)",
+        )
+
+        plt.legend()
+        plt.xlabel("Sample")
+        plt.ylabel("Amplitude")
+        plt.title("Raw note + windowed harmonic part")
+        plt.tight_layout()
+        plt.show()
+
+        # play harmonic part of note
+        sd.play(harmonic_audio, sr)
+        sd.wait()
+
+    return harmonic_audio_win, intra_onsets
 
 
 
 def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot):
     string_hex_audio = track.audio.hex_debleeded
     sr = string_hex_audio.sampling_rate
-
-
 
     # 6 x n_samples Matrix
     strings_audio_matrix = string_hex_audio.time
@@ -163,39 +253,42 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot):
         # extract note audio from
         onset_sample = int(note.attributes.onset * sr)
         offset_sample = int(note.attributes.offset * sr)
-        # valid notes
-        if  note.match is not True or note.attributes.midi_note is None or offset_sample - onset_sample < W :
-            continue # use only model notes
 
-        if note.origin != "model":
-            continue
+        # valid notes
+        if  (
+            note.match is not True or
+            note.attributes.midi_note is None or
+            offset_sample - onset_sample < W or
+            note.origin != "model"
+        ):
+            continue # use only model notes
 
         noteMIDI = round(note.attributes.midi_note)
         note.attributes.pitch = (440 / 32) * (2 ** ((noteMIDI - 9) / 12))
-
         k_f0 = int(note.attributes.pitch * W / sr)
 
         note_audio = strings_audio_matrix[note.attributes.string_index, onset_sample:offset_sample]
-        note_audio /= np.max(np.abs(note_audio))
 
-        # skip notes too short
-        if note_audio.size < W:
+        # extract harmonic part of note audi -> cut out other onsets & time window the rest
+        harmonic_audio, intra_onsets = extract_harmonic_note_audio(note_audio, W, H, sr, plot)
+        if harmonic_audio is None:
             continue
 
+        # Pad the audio so last window is included
+        harmonic_audio = np.pad(harmonic_audio, (0, W), mode="constant")
+
         # buffer signal
-        note_audio = np.lib.stride_tricks.sliding_window_view(note_audio, window_shape=W)[::H]
-        if note_audio.ndim < 2:
+        harmonic_audio = np.lib.stride_tricks.sliding_window_view(harmonic_audio, window_shape=W)[::H]
+        if harmonic_audio.ndim < 2:
             print("Not enough frames for analysis")
             continue
 
-        # Padding
-        note_audio = np.pad(note_audio, ((0, 0), (0, W - note_audio.shape[1])), mode='constant')
-        # Erst normalisieren
-        note_audio /= np.max(np.abs(note_audio), axis=1, keepdims=True)
-        # Dann fenstern
+        # Apply Hann-Window on each frame
         window = scipy.signal.windows.hann(W, sym=False)
-        note_audio = note_audio * window
-        inst_freq, inst_amp = instantaneous_frequency(note_audio, W, H, sr, window)
+        note_audio_buffered = harmonic_audio * window
+
+        # calculate accurate freq & amplitude for all possible bins
+        inst_freq, inst_amp = instantaneous_frequency(harmonic_audio, W, H, sr, window)
 
         # pick best partials
         partial_freqs, partial_amps, partial_bins = partial_picker(
@@ -207,15 +300,15 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot):
             n_partials=n_partials,
             sr=sr,
             W=W,
-            threshold = -50,
+            threshold = -30,
         )
-
 
         # Zeitachse
         t_frames = np.arange(partial_freqs.shape[0]) * (H / sr)
+
         if plot:
             # --- Spectrogram with partials overlay ---
-            fft_mag = np.abs(np.fft.rfft(note_audio, axis=1))
+            fft_mag = np.abs(np.fft.rfft(note_audio_buffered, axis=1))
             fft_mag_db = 20 * np.log10(fft_mag + 1e-12)
 
             # Drop first FFT frame to match inst_freq length
@@ -223,43 +316,45 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot):
             times_if = np.arange(fft_mag_db_if.shape[0]) * (H / sr)
 
             freqs = np.fft.rfftfreq(W, 1 / sr)
-            times = np.arange(fft_mag_db.shape[0]) * (H / sr)
 
-            plt.figure(figsize=(14, 8))
-            plt.imshow(
+            plt.figure(figsize=(14, 12))
+
+            pcm = plt.pcolormesh(
+                times_if,
+                freqs,
                 fft_mag_db_if.T,
-                origin="lower",
-                aspect="auto",
-                extent=[times_if[0], times_if[-1], freqs[0], freqs[-1]],
+                shading="auto",
                 cmap="magma",
-                vmin=-60,
+                vmin=-30,
                 vmax=2,
             )
 
-            # Overlay partials (now aligned)
+            # Overlay partials
             for p in range(partial_freqs.shape[1]):
-                plt.plot(times_if, partial_freqs[:, p], label=f"P{p}", linewidth=3)
+                plt.plot(times_if, partial_freqs[:, p], linewidth=2, color='g')
 
-            plt.colorbar(label="Magnitude (dB)")
-            plt.title(f"Spectrogram with Extracted Partials – {note.attributes.pitch:.2f} Hz, String: {note.attributes.string_index}")
+            # Onsets als vertikale schwarze Linien
+            for onset in intra_onsets:
+                plt.axvline(
+                    x=onset / sr,  # 👈 FIX
+                    color="black",
+                    linestyle="--",
+                    linewidth=2,
+                    alpha=0.8,
+                )
+
+            # plt.yscale("log")
+            plt.ylim(80, 8000)
+            plt.colorbar(pcm, label="Magnitude (dB)")
+            plt.title(
+                f"Spectrogram with Extracted Partials – "
+                f"{note.attributes.pitch:.2f} Hz, String: {note.attributes.string_index}"
+            )
             plt.xlabel("Time (s)")
             plt.ylabel("Frequency (Hz)")
-            plt.ylim(0, 8000)
-            plt.legend(ncol=4, fontsize=9)
+            # plt.legend(ncol=4, fontsize=9)
             plt.tight_layout()
             plt.show()
-
-            # # --- 1. Line Plot ---
-            # plt.figure(figsize=(14, 7))
-            # for p_idx in range(partial_freqs.shape[1]):
-            #     plt.plot(t_frames, partial_freqs[:, p_idx], label=f"P{p_idx}", linewidth=1.5)
-            # plt.title(f"Instantaneous Partial Frequencies – Note: {note.attributes.pitch:0.2f} Hz")
-            # plt.xlabel("Time (s)")
-            # plt.ylabel("Frequency (Hz)")
-            # plt.grid(True, alpha=0.3)
-            # plt.legend(ncol=4, fontsize=9)
-            # plt.tight_layout()
-            # plt.show()
 
         # save into Partials object
         note.partials = Partials(
@@ -267,8 +362,6 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot):
             frequencies=partial_freqs,
             amplitudes=partial_amps,
         )
-
-
 
 
 def process_single_file(args):
@@ -281,7 +374,7 @@ def process_single_file(args):
             track = pickle.load(f)
 
         # Process track
-        process_track_extract_partials(track, W, H, beta_max, n_partials=25, plot=False)
+        process_track_extract_partials(track, W, H, beta_max, n_partials=25, plot=True)
 
         # Save track
         track.save(filepath)
@@ -293,11 +386,12 @@ def process_single_file(args):
         return f"Error processing {filepath}: {str(e)}"
 
 
+
 def main():
     track_directory = '../noteData/GuitarSet/train/dev/'
 
     # Parameters
-    W = 2048
+    W = 1600
     H = int(W / 8)
     beta_max = 1e-4
 
@@ -308,19 +402,52 @@ def main():
         if os.path.isfile(os.path.join(track_directory, filename))
     ]
 
-    # Prepare arguments for each file
-    args_list = [(fp, W, H, beta_max) for fp in filepaths]
+    # Process files one by one (DEBUG FRIENDLY)
+    for i, filepath in enumerate(filepaths, 1):
+        print(f"\n[{i}/{len(filepaths)}] Processing {filepath}")
 
-    # Create pool and process files
-    num_processes = mp.cpu_count() - 1  # Leave one core free
-    with mp.Pool(processes=num_processes) as pool:
-        results = pool.map(process_single_file, args_list)
+        try:
+            result = process_single_file((filepath, W, H, beta_max))
+            print(result)
 
-    # Print results
-    for i, result in enumerate(results, 1):
-        print(f"[{i}/{len(results)}] {result}")
+        except Exception as e:
+            print(f"Error processing {filepath}: {e}")
 
 
 if __name__ == "__main__":
-    mp.set_start_method("spawn", force=True)
     main()
+
+
+
+"""Multiprocessing"""
+# def main():
+#     track_directory = '../noteData/GuitarSet/train/dev/'
+#
+#     # Parameters
+#     W = 2048
+#     H = int(W / 8)
+#     beta_max = 1e-4
+#
+#     # Collect all file paths
+#     filepaths = [
+#         os.path.join(track_directory, filename)
+#         for filename in os.listdir(track_directory)
+#         if os.path.isfile(os.path.join(track_directory, filename))
+#     ]
+#
+#     # Prepare arguments for each file
+#     args_list = [(fp, W, H, beta_max) for fp in filepaths]
+#
+#     # Create pool and process files
+#     num_processes = mp.cpu_count() - 1  # Leave one core free
+#     with mp.Pool(processes=num_processes) as pool:
+#         results = pool.map(process_single_file, args_list)
+#
+#     # Print results
+#     for i, result in enumerate(results, 1):
+#         print(f"[{i}/{len(results)}] {result}")
+#
+#
+# if __name__ == "__main__":
+#     mp.set_start_method("spawn", force=True)
+#     main()

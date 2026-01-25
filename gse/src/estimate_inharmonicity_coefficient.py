@@ -50,10 +50,10 @@ def filter_betas(betas, beta_max):
 def estimate_inharmonicity_coefficient_iterative(
     partials,
     beta_max,
+    plot,
     n_iter=200,
     tol=1e-9,
-    plot=True,
-    amp_threshold_db = -50
+    amp_threshold_db = -55
 ):
     freqs = partials.frequencies  # (T, K)
     amps = partials.amplitudes
@@ -68,23 +68,18 @@ def estimate_inharmonicity_coefficient_iterative(
         f_k = freqs[i]
         a_k = amps[i]
 
-        valid = (~np.isnan(f_k)) & (a_k > amp_threshold_db)
+        valid = (~np.isnan(f_k)) & (a_k > amp_threshold_db) & (k_full < 25)
 
-        if np.sum(valid) < 10:
+        if np.sum(valid) < 15:
             continue
 
         k = k_full[valid]
         f = f_k[valid]
+        a = a_k[valid]
+
+        f0 = f[0]
 
         # initial f0 estimate
-        f0 = f[0] / k[0]  # aus erstem Partial rekonstruiert
-        # if np.isnan(f0):
-        #     next_valid = np.where(~np.isnan(f))[0]
-        #     if next_valid.size > 0:
-        #         p = next_valid[0]
-        #         f0 = f[p] / k[p] / np.sqrt(1 + beta * k[p] ** 2)
-        #     else:
-        #         continue  # nichts gefunden
         if np.isnan(f0):
             break
 
@@ -93,9 +88,18 @@ def estimate_inharmonicity_coefficient_iterative(
         for _ in range(n_iter):
             f_expected = k * f0 * np.sqrt(1 + beta * k ** 2)
             delta_f = f - f_expected
+
             X = np.vstack([k ** 3, k, np.ones_like(k)]).T
-            a, b, c = np.linalg.lstsq(X, delta_f, rcond=None)[0]
-            beta_new = 2 * a / (f0 + b)
+
+            weights = a - np.min(a)
+            weights /= np.max(weights)
+            W = np.sqrt(weights)
+            Xw = X * W[:, None]
+
+            delta_fw = delta_f * W
+
+            tp_a, tp_b, tp_c = np.linalg.lstsq(Xw, delta_fw, rcond=None)[0]
+            beta_new = 2 * tp_a / (f0 + tp_b)
             if np.abs(beta_new - beta) < tol:
                 beta = beta_new
                 break
@@ -105,10 +109,11 @@ def estimate_inharmonicity_coefficient_iterative(
 
         if plot:
             k_fit = np.linspace(k.min(), k.max(), 500)
-            delta_fit = a * k_fit**3 + b * k_fit + c
+            delta_fit = tp_a * k_fit**3 + tp_b * k_fit + tp_c
 
             plt.figure(figsize=(6, 4))
-            plt.scatter(k, delta_f, label="measured")
+            plt.scatter(k, delta_f, c=weights, cmap="viridis")
+            plt.colorbar(label="weight")
             plt.plot(k_fit, delta_fit, label="fit")
             plt.xlabel("partial index k")
             plt.ylabel("Δfₖ (Hz)")

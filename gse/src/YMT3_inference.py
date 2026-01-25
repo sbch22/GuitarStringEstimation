@@ -365,7 +365,7 @@ def main(track_directory):
 
     file_counter = 0
 
-    files_to_analyze = 12
+    files_to_analyze = 20
 
     # Process each audio file in the directory
     for filename in os.listdir(track_directory):
