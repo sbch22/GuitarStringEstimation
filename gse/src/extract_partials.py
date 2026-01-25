@@ -204,6 +204,7 @@ def extract_harmonic_note_audio(note_audio, W, H, sr, plot):
         len(harmonic_audio_raw), sym=False
     )
     harmonic_audio_win = harmonic_audio_raw * harmonic_window
+    harmonic_audio = harmonic_audio_win / len(harmonic_audio_win)
 
     if plot:
         plt.figure(figsize=(12, 3))
@@ -261,7 +262,7 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot):
             offset_sample - onset_sample < W or
             note.origin != "model"
         ):
-            continue # use only model notes
+            continue # use only model notes where match == True
 
         noteMIDI = round(note.attributes.midi_note)
         note.attributes.pitch = (440 / 32) * (2 ** ((noteMIDI - 9) / 12))
@@ -285,10 +286,12 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot):
 
         # Apply Hann-Window on each frame
         window = scipy.signal.windows.hann(W, sym=False)
-        note_audio_buffered = harmonic_audio * window
+        harmonic_audio = harmonic_audio * window
 
         # calculate accurate freq & amplitude for all possible bins
         inst_freq, inst_amp = instantaneous_frequency(harmonic_audio, W, H, sr, window)
+
+        threshold = -45
 
         # pick best partials
         partial_freqs, partial_amps, partial_bins = partial_picker(
@@ -300,7 +303,7 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot):
             n_partials=n_partials,
             sr=sr,
             W=W,
-            threshold = -30,
+            threshold = threshold,
         )
 
         # Zeitachse
@@ -308,7 +311,7 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot):
 
         if plot:
             # --- Spectrogram with partials overlay ---
-            fft_mag = np.abs(np.fft.rfft(note_audio_buffered, axis=1))
+            fft_mag = np.abs(np.fft.rfft(harmonic_audio, axis=1))
             fft_mag_db = 20 * np.log10(fft_mag + 1e-12)
 
             # Drop first FFT frame to match inst_freq length
@@ -325,19 +328,19 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot):
                 fft_mag_db_if.T,
                 shading="auto",
                 cmap="magma",
-                vmin=-30,
+                vmin=threshold,
                 vmax=2,
             )
 
             # Overlay partials
             for p in range(partial_freqs.shape[1]):
-                plt.plot(times_if, partial_freqs[:, p], linewidth=2, color='g')
+                plt.plot(times_if, partial_freqs[:, p], linewidth=2.5, color='g')
 
             # Onsets als vertikale schwarze Linien
             for onset in intra_onsets:
                 plt.axvline(
                     x=onset / sr,  # 👈 FIX
-                    color="black",
+                    color="red",
                     linestyle="--",
                     linewidth=2,
                     alpha=0.8,
@@ -374,7 +377,7 @@ def process_single_file(args):
             track = pickle.load(f)
 
         # Process track
-        process_track_extract_partials(track, W, H, beta_max, n_partials=25, plot=True)
+        process_track_extract_partials(track, W, H, beta_max, n_partials=20, plot=True)
 
         # Save track
         track.save(filepath)
@@ -391,7 +394,7 @@ def main():
     track_directory = '../noteData/GuitarSet/train/dev/'
 
     # Parameters
-    W = 1600
+    W = 1024
     H = int(W / 8)
     beta_max = 1e-4
 
