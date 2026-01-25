@@ -1,7 +1,7 @@
 import pickle
 
 # path to your saved track
-track_path = "../noteData/03_Rock1-90-C#_comp_track.pkl"
+track_path = "../noteData/single_note/dev/AR_A_fret_0-20_event_0_start_1.pkl"
 # load it back
 with open(track_path, "rb") as f:
     track = pickle.load(f)
