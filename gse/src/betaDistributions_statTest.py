@@ -61,7 +61,7 @@ def perform_welch_anova(string_values: List[np.ndarray]) -> Tuple[float, float]:
     return f_stat, p_value_anova
 
 
-def plot_beta_distributions(betas: Dict[int, List[float]]) -> List[np.ndarray]:
+def plot_beta_distributions(betas: Dict[int, List[float]], beta_max) -> List[np.ndarray]:
     """
     Plot histograms of beta values for each guitar string with relative frequencies.
 
@@ -113,7 +113,7 @@ def plot_beta_distributions(betas: Dict[int, List[float]]) -> List[np.ndarray]:
         plt.xlabel('Beta Values')
         plt.ylabel('Relative Frequency')
         plt.legend()
-        plt.xlim(0, 1e-4)
+        plt.xlim(0, beta_max)
     plt.show()
 
     return string_values
@@ -146,7 +146,7 @@ def main():
             string_index = note.attributes.string_index
             betas_by_string[string_index].extend(note.features.betas)
 
-    string_values = plot_beta_distributions(betas_by_string)
+    string_values = plot_beta_distributions(betas_by_string, beta_max = 1e-4)
 
 
 
