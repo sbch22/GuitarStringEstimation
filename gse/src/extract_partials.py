@@ -84,7 +84,7 @@ def partial_picker(inst_freq, inst_amp, f0, k_f0, beta_max, n_partials, sr, W, t
         b_lo = max(b_f0 - 2, 0) if prev_bin is None else max(prev_bin - 1, 0)
         b_hi = min(b_f0 + 2, bin_nyquist) if prev_bin is None else min(prev_bin + 1, bin_nyquist)
 
-        amp_region = inst_amp[t, b_lo:b_hi+1]
+        amp_region = inst_amp[t, b_lo-1:b_hi+1]
         if amp_region.size == 0:
             continue
 
@@ -98,7 +98,7 @@ def partial_picker(inst_freq, inst_amp, f0, k_f0, beta_max, n_partials, sr, W, t
     f0_frame = medfilt(f0_frame, kernel_size=5)
 
     # ----- 3. Partials pro Frame bestimmen -----
-    max_jump_hz = 20  # maximale Sprungweite zwischen Frames (zeitkontinuität)
+    max_jump_hz = 50  # maximale Sprungweite zwischen Frames (zeitkontinuität)
 
     for t in range(n_frames):
         if np.isnan(f0_frame[t]):
@@ -119,6 +119,7 @@ def partial_picker(inst_freq, inst_amp, f0, k_f0, beta_max, n_partials, sr, W, t
             # nur minimal 1 bin
             if b_hi < b_lo:
                 b_hi = b_lo + 1
+                b_lo = b_lo - 1
 
             amp_region = inst_amp[t, b_lo:b_hi]
             freq_region = inst_freq[t, b_lo:b_hi]
@@ -291,7 +292,7 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot):
         # calculate accurate freq & amplitude for all possible bins
         inst_freq, inst_amp = instantaneous_frequency(harmonic_audio, W, H, sr, window)
 
-        threshold = -45
+        threshold = -50
 
         # pick best partials
         partial_freqs, partial_amps, partial_bins = partial_picker(
@@ -377,7 +378,7 @@ def process_single_file(args):
             track = pickle.load(f)
 
         # Process track
-        process_track_extract_partials(track, W, H, beta_max, n_partials=20, plot=True)
+        process_track_extract_partials(track, W, H, beta_max, n_partials=20, plot=False)
 
         # Save track
         track.save(filepath)
@@ -394,9 +395,9 @@ def main():
     track_directory = '../noteData/GuitarSet/train/dev/'
 
     # Parameters
-    W = 1024
+    W = 4096
     H = int(W / 8)
-    beta_max = 1e-4
+    beta_max = 2e-4
 
     # Collect all file paths
     filepaths = [

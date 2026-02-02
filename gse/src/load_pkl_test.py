@@ -1,7 +1,7 @@
 import pickle
 
 # path to your saved track
-track_path = "../noteData/single_note/dev/AR_A_fret_0-20_event_0_start_1.pkl"
+track_path = "../noteData/GuitarSet/train/00_Funk2-108-Eb_solo_track.pkl"
 # load it back
 with open(track_path, "rb") as f:
     track = pickle.load(f)
@@ -12,7 +12,14 @@ print("Metadata:", track.metadata)
 print("Number of notes:", len(track.notes))
 
 # check one note
-first_note = track.notes[0]
+valid_notes = [
+    note for note in track.notes
+    if note.match
+]
+
+print("Number of valid notes:", len(valid_notes))
+
+first_valid_note = valid_notes[0]
 
 notes = track.notes
 

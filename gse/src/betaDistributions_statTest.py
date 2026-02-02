@@ -82,7 +82,7 @@ def plot_beta_distributions(betas: Dict[int, List[float]], beta_max) -> List[np.
         string_name = f"String {string_index}"
 
         # Filter values to the valid range [0, 0.001]
-        values = np.array([w for w in betas.get(string_index, []) if 0 <= w <= 1e-4])
+        values = np.array([w for w in betas.get(string_index, []) if 0 <= w <= beta_max])
 
         # Print case count for this string
         case_count = len(values)
@@ -146,7 +146,7 @@ def main():
             string_index = note.attributes.string_index
             betas_by_string[string_index].extend(note.features.betas)
 
-    string_values = plot_beta_distributions(betas_by_string, beta_max = 1e-4)
+    string_values = plot_beta_distributions(betas_by_string, beta_max = 2e-4)
 
 
 

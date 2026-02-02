@@ -53,7 +53,7 @@ def estimate_inharmonicity_coefficient_iterative(
     plot,
     n_iter=200,
     tol=1e-9,
-    amp_threshold_db = -55
+    amp_threshold_db = -50
 ):
     freqs = partials.frequencies  # (T, K)
     amps = partials.amplitudes
@@ -89,16 +89,33 @@ def estimate_inharmonicity_coefficient_iterative(
             f_expected = k * f0 * np.sqrt(1 + beta * k ** 2)
             delta_f = f - f_expected
 
-            X = np.vstack([k ** 3, k, np.ones_like(k)]).T
+            valid2 = np.abs(delta_f) <= 100
 
-            weights = a - np.min(a)
-            weights /= np.max(weights)
+            # konsistent auf aktuelle k,f,a anwenden
+            k2 = k[valid2]
+            f2 = f[valid2]
+            a2 = a[valid2]
+            delta_f2 = delta_f[valid2]
+
+            # genug Punkte behalten?
+            if len(k2) < 5:
+                break
+
+            X = np.vstack([k2 ** 3, k2, np.ones_like(k2)]).T
+
+            weights = a2 - np.min(a2)
+            if np.max(weights) > 0:
+                weights /= np.max(weights)
+            else:
+                weights = np.ones_like(weights)
+
             W = np.sqrt(weights)
-            Xw = X * W[:, None]
 
-            delta_fw = delta_f * W
+            Xw = X * W[:, None]
+            delta_fw = delta_f2 * W
 
             tp_a, tp_b, tp_c = np.linalg.lstsq(Xw, delta_fw, rcond=None)[0]
+
             beta_new = 2 * tp_a / (f0 + tp_b)
             if np.abs(beta_new - beta) < tol:
                 beta = beta_new
@@ -165,7 +182,7 @@ def main():
     track_directory = '../noteData/GuitarSet/train/dev/'
 
     # Parameters
-    beta_max = 1e-4
+    beta_max = 2e-4
 
     # Collect all file paths
     filepaths = [
