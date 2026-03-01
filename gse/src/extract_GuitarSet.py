@@ -44,7 +44,11 @@ def create_track_from_jam(jam_file: str, track_id: str) -> Track:
                     pitch=noteFREQ,  # convert to frequency
                 )
 
-                notes.append(FeatureNote(attributes=attr, features=Features(), origin='gt'))
+                notes.append(FeatureNote(attributes=attr,
+                                         features=Features(),
+                                         origin='gt',
+                                         valid=True,
+                                         ))
 
     track = Track(
         name=track_id,
@@ -103,8 +107,6 @@ def preprocess_dataset(data_dir, save_dir):
 
         track = create_track_from_jam(ann_filename, guitarset_id)
         load_track_audio(track, data_dir) # load all needed audio files
-
-        # print(Track.__module__)
 
         track_filename = os.path.basename(ann_filename).replace('.jams', '_track.pkl')
         save_path = os.path.join(save_dir, 'GuitarSet', 'train',  track_filename)

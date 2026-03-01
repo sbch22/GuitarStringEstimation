@@ -6,10 +6,12 @@ sys.path.append(os.path.abspath(''))
 import multiprocessing as mp
 import os
 import pickle
-
 import numpy as np
 import matplotlib.pyplot as plt
 from utils.FeatureNote_dataclass import Features
+from configparser import ConfigParser
+
+from extract_partials import filter_analysis
 
 
 def filter_betas(betas, beta_max):
@@ -47,142 +49,97 @@ def filter_betas(betas, beta_max):
     return filtered_values
 
 
-def estimate_inharmonicity_coefficient_iterative(
-    partials,
-    beta_max,
-    plot,
-    n_iter=200,
-    tol=1e-9,
-    amp_threshold_db = -50
-):
+def estimate_inharmonicity_coefficient_all_frets(partials, fret, min_partials=12):
     freqs = partials.frequencies  # (T, K)
-    amps = partials.amplitudes
     T, K = freqs.shape
 
     betas = np.full(T, np.nan)
     k_full = np.arange(1, K + 1)
 
-    beta = 5e-5 # start harmonic
-
     for i in range(T):
         f_k = freqs[i]
-        a_k = amps[i]
 
-        valid = (~np.isnan(f_k)) & (a_k > amp_threshold_db) & (k_full < 25)
-
-        if np.sum(valid) < 15:
+        valid = np.isfinite(f_k)
+        if np.sum(valid) < min_partials:
             continue
 
         k = k_full[valid]
         f = f_k[valid]
-        a = a_k[valid]
 
+        # fundamental estimate
         f0 = f[0]
 
-        # initial f0 estimate
-        if np.isnan(f0):
-            break
+        # Eq. (15): ck
+        c_k = f - k * f0
 
+        # Eq. (16): polynomial fit
+        X = np.vstack([k**3, k, np.ones_like(k)]).T
 
-        # iterative beta-Schätzung
-        for _ in range(n_iter):
-            f_expected = k * f0 * np.sqrt(1 + beta * k ** 2)
-            delta_f = f - f_expected
+        try:
+            a, b, c = np.linalg.lstsq(X, c_k, rcond=None)[0]
 
-            valid2 = np.abs(delta_f) <= 100
+            # Eq. (17): beta
+            beta_n = 2 * a / (f0 + b)
 
-            # konsistent auf aktuelle k,f,a anwenden
-            k2 = k[valid2]
-            f2 = f[valid2]
-            a2 = a[valid2]
-            delta_f2 = delta_f[valid2]
+            # eig. beta0
+            beta = beta_n * 2**(-fret/6)
 
-            # genug Punkte behalten?
-            if len(k2) < 5:
-                break
+            # sanity checks
+            if np.isfinite(beta) and beta > 0:
+                betas[i] = beta
 
-            X = np.vstack([k2 ** 3, k2, np.ones_like(k2)]).T
+        except np.linalg.LinAlgError:
+            continue
 
-            weights = a2 - np.min(a2)
-            if np.max(weights) > 0:
-                weights /= np.max(weights)
-            else:
-                weights = np.ones_like(weights)
-
-            W = np.sqrt(weights)
-
-            Xw = X * W[:, None]
-            delta_fw = delta_f2 * W
-
-            tp_a, tp_b, tp_c = np.linalg.lstsq(Xw, delta_fw, rcond=None)[0]
-
-            beta_new = 2 * tp_a / (f0 + tp_b)
-            if np.abs(beta_new - beta) < tol:
-                beta = beta_new
-                break
-            beta = beta_new
-
-        betas[i] = beta
-
-        if plot:
-            k_fit = np.linspace(k.min(), k.max(), 500)
-            delta_fit = tp_a * k_fit**3 + tp_b * k_fit + tp_c
-
-            plt.figure(figsize=(6, 4))
-            plt.scatter(k, delta_f, c=weights, cmap="viridis")
-            plt.colorbar(label="weight")
-            plt.plot(k_fit, delta_fit, label="fit")
-            plt.xlabel("partial index k")
-            plt.ylabel("Δfₖ (Hz)")
-            plt.title(f"t={i}, β={beta:.2e}")
-            plt.legend()
-            plt.tight_layout()
-            plt.show()
-
-    betas = filter_betas(betas, beta_max)
     return betas
 
 
 def process_single_file(args):
-    filepath, beta_max = args
+    filepath, beta_max, plot, threshold = args
 
-    try:
-        with open(filepath, "rb") as f:
-            track = pickle.load(f)
+    print(f"Processing {filepath}")
 
-        # not all notes are created equal. Some do not have partials ...
-        for note in track.notes:
-            if note.match is not True:
-                continue
-            if note.origin != 'model':
-                continue
-            if note.partials is None:
-                continue
-            if note.partials.frequencies is None:
-                continue
+    with open(filepath, "rb") as f:
+        track = pickle.load(f)
 
-            betas = estimate_inharmonicity_coefficient_iterative(note.partials, beta_max, plot=False)
+    for note in track.notes:
+        if note.valid is not True:
+            continue
+
+        if note.attributes.fret is not None and note.partials is not None:
+            betas = estimate_inharmonicity_coefficient_all_frets(
+                note.partials,
+                note.attributes.fret
+            )
 
             if note.features is None:
                 note.features = Features()
 
-            note.features.betas = betas
+            betas_filtered = filter_betas(betas, beta_max)
 
-        track.save(filepath)
-        print(f"pickled beta-calculated note object into {filepath}.")
+            note.features.betas = betas_filtered
 
-        filename = os.path.basename(filepath)
-        return f"Success: {filename}"
+    track.save(filepath)
+    print(f"Saved {filepath}")
 
-    except Exception as e:
-        return f"Error processing {filepath}: {str(e)}"
+    return f"Success: {os.path.basename(filepath)}"
 
 
 def main():
-    track_directory = '../noteData/GuitarSet/train/dev/'
+    # read config
+    config = ConfigParser()
+    config.read('config.ini')
 
-    # Parameters
-    beta_max = 2e-4
+    W = config.getint('train', 'W')
+    H = config.getint('train', 'H')
+    beta_max = config.getfloat('train', 'beta_max')
+    threshold = config.getint('train', 'threshold')
+    plot = config.getboolean('train', 'plot')
+
+    track_directory = config.get('paths', 'track_directory')
+
+    print(W, H, beta_max, threshold)
+    print(track_directory)
 
     # Collect all file paths
     filepaths = [
@@ -191,7 +148,7 @@ def main():
         if os.path.isfile(os.path.join(track_directory, filename))
     ]
 
-    args_list = [(fp, beta_max) for fp in filepaths]
+    args_list = [(fp, beta_max, plot, threshold) for fp in filepaths]
 
     # Create pool and process files
     num_processes = mp.cpu_count() - 1  # Leave one core free
