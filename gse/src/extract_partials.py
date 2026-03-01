@@ -7,15 +7,40 @@ import scipy
 from scipy import signal
 import matplotlib.pyplot as plt
 import numpy as np
-from utils.FeatureNote_dataclass import Partials
+from gse.src.utils.FeatureNote_dataclass import Partials
 import multiprocessing as mp
 import os
 import pickle
 from scipy.signal import medfilt
 import librosa as lb
 import sounddevice as sd
+from configparser import ConfigParser
 
-# test
+
+def filter_analysis(notes):
+    """
+    Checks notes.filter_reason and counts occurrences.
+
+    Args:
+        notes: List of FeatureNote objects
+
+    Returns:
+        Dict with filter reason and number of notes filtered.
+    """
+    errors = {}
+    for note in notes:
+        if not note.valid and hasattr(note, 'filter_reason'):
+            reason = note.filter_reason
+            errors[reason] = errors.get(reason, 0) + 1
+
+    # Print results
+    print("\nFilter Analysis:")
+    for reason, count in sorted(errors.items(), key=lambda x: x[1], reverse=True):
+        print(f"  {reason}: {count} notes")
+    print(f"Total filtered: {sum(errors.values())}")
+    print(f"Total valid: {sum(1 for n in notes if n.valid)}\n")
+
+    return errors
 
 def instantaneous_frequency(frames, W, H, sr, window):
     """
@@ -156,7 +181,7 @@ def extract_harmonic_note_audio(note_audio, W, H, sr, plot):
 
     # skip notes too short
     if note_audio.size < W:
-        return None
+        return None, None
 
     # Onset detection in note
     H_onset = int(H / 4)
@@ -195,7 +220,7 @@ def extract_harmonic_note_audio(note_audio, W, H, sr, plot):
 
     # safety check
     if len(harmonic_audio) < W:
-        return None
+        return None, None
 
     # --- harmonic slice ---
     harmonic_audio_raw = note_audio[harmonic_start:harmonic_end]
@@ -244,36 +269,27 @@ def extract_harmonic_note_audio(note_audio, W, H, sr, plot):
 
 
 
-def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot):
+def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot, threshold):
     string_hex_audio = track.audio.hex_debleeded
     sr = string_hex_audio.sampling_rate
 
     # 6 x n_samples Matrix
     strings_audio_matrix = string_hex_audio.time
 
-    for note in track.notes:
+    for note in track.valid_notes:
         # extract note audio from
         onset_sample = int(note.attributes.onset * sr)
         offset_sample = int(note.attributes.offset * sr)
 
-        # valid notes
-        if  (
-            note.match is not True or
-            note.attributes.midi_note is None or
-            offset_sample - onset_sample < W or
-            note.origin != "model"
-        ):
-            continue # use only model notes where match == True
-
-        noteMIDI = round(note.attributes.midi_note)
-        note.attributes.pitch = (440 / 32) * (2 ** ((noteMIDI - 9) / 12))
         k_f0 = int(note.attributes.pitch * W / sr)
 
         note_audio = strings_audio_matrix[note.attributes.string_index, onset_sample:offset_sample]
+        harmonic_audio = note_audio
 
         # extract harmonic part of note audi -> cut out other onsets & time window the rest
-        harmonic_audio, intra_onsets = extract_harmonic_note_audio(note_audio, W, H, sr, plot)
+        # harmonic_audio, intra_onsets = extract_harmonic_note_audio(note_audio, W, H, sr, plot)
         if harmonic_audio is None:
+            note.filter_reason = 'no harmonic audio'
             continue
 
         # Pad the audio so last window is included
@@ -282,7 +298,7 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot):
         # buffer signal
         harmonic_audio = np.lib.stride_tricks.sliding_window_view(harmonic_audio, window_shape=W)[::H]
         if harmonic_audio.ndim < 2:
-            print("Not enough frames for analysis")
+            note.filter_reason = 'harmonic audio too short'
             continue
 
         # Apply Hann-Window on each frame
@@ -291,8 +307,6 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot):
 
         # calculate accurate freq & amplitude for all possible bins
         inst_freq, inst_amp = instantaneous_frequency(harmonic_audio, W, H, sr, window)
-
-        threshold = -50
 
         # pick best partials
         partial_freqs, partial_amps, partial_bins = partial_picker(
@@ -306,6 +320,7 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot):
             W=W,
             threshold = threshold,
         )
+
 
         # Zeitachse
         t_frames = np.arange(partial_freqs.shape[0]) * (H / sr)
@@ -367,37 +382,56 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot):
             amplitudes=partial_amps,
         )
 
+        # Errors in Filtering
+        if note.partials == None:
+            note.filter_reason = 'partials found'
 
-def process_single_file(args):
+
+def process_single_file(filepath, W, H, beta_max, plot, threshold):
     """Worker function to process a single file"""
-    filepath, W, H, beta_max = args
 
-    try:
-        # Load track
-        with open(filepath, "rb") as f:
-            track = pickle.load(f)
+    # Load track
+    with open(filepath, "rb") as f:
+        track = pickle.load(f)
 
-        # Process track
-        process_track_extract_partials(track, W, H, beta_max, n_partials=20, plot=False)
+    num_valid_notes_gt = len([note for note in track.notes if note.valid == True and note.origin == 'gt'])
+    num_invalid_notes_gt = len([note for note in track.notes if note.valid == False and note.origin == 'gt'])
 
-        # Save track
-        track.save(filepath)
+    # Process track
+    process_track_extract_partials(track, W, H, beta_max, n_partials=25, plot=plot, threshold = threshold)
 
-        filename = os.path.basename(filepath)
-        return f"Success: {filename}"
+    filter_analysis(track.notes)
+    # Save track
+    track.save(filepath)
 
-    except Exception as e:
-        return f"Error processing {filepath}: {str(e)}"
+    return num_valid_notes_gt, num_invalid_notes_gt
 
 
+    # except Exception as e:
+    #     return f"Error processing {filepath}: {str(e)}"
 
-def main():
-    track_directory = '../noteData/GuitarSet/train/dev/'
 
-    # Parameters
-    W = 4096
-    H = int(W / 8)
-    beta_max = 2e-4
+
+
+def create_train_config():
+    config = ConfigParser()
+
+    config['train'] = {
+        'W': '4096',
+        'H': '256',
+        'beta_max': '2e-4',
+        'threshold': '-50',
+        'plot': False
+    }
+
+    config['paths'] = {
+        'track_directory': '../noteData/GuitarSet/train/dev/'
+    }
+
+    with open('config.ini', 'w') as f:
+        config.write(f)
+
+def main(track_directory, W, H, beta_max, threshold, plot):
 
     # Collect all file paths
     filepaths = [
@@ -406,52 +440,31 @@ def main():
         if os.path.isfile(os.path.join(track_directory, filename))
     ]
 
+    total_valid_notes = 0
+    total_invalid_notes = 0
+
     # Process files one by one (DEBUG FRIENDLY)
     for i, filepath in enumerate(filepaths, 1):
         print(f"\n[{i}/{len(filepaths)}] Processing {filepath}")
+        num_valid_notes_gt, num_invalid_notes_gt = process_single_file(filepath, W, H, beta_max, plot, threshold)
 
-        try:
-            result = process_single_file((filepath, W, H, beta_max))
-            print(result)
+        total_valid_notes += num_valid_notes_gt
+        total_invalid_notes += num_invalid_notes_gt
 
-        except Exception as e:
-            print(f"Error processing {filepath}: {e}")
+    print(f"Total valid notes: {total_valid_notes}")
+    print(f"Total invalid notes: {total_invalid_notes}")
 
 
 if __name__ == "__main__":
-    main()
+    create_train_config()
+    config = ConfigParser()
+    config.read('config.ini')
 
-
-
-"""Multiprocessing"""
-# def main():
-#     track_directory = '../noteData/GuitarSet/train/dev/'
-#
-#     # Parameters
-#     W = 2048
-#     H = int(W / 8)
-#     beta_max = 1e-4
-#
-#     # Collect all file paths
-#     filepaths = [
-#         os.path.join(track_directory, filename)
-#         for filename in os.listdir(track_directory)
-#         if os.path.isfile(os.path.join(track_directory, filename))
-#     ]
-#
-#     # Prepare arguments for each file
-#     args_list = [(fp, W, H, beta_max) for fp in filepaths]
-#
-#     # Create pool and process files
-#     num_processes = mp.cpu_count() - 1  # Leave one core free
-#     with mp.Pool(processes=num_processes) as pool:
-#         results = pool.map(process_single_file, args_list)
-#
-#     # Print results
-#     for i, result in enumerate(results, 1):
-#         print(f"[{i}/{len(results)}] {result}")
-#
-#
-# if __name__ == "__main__":
-#     mp.set_start_method("spawn", force=True)
-#     main()
+    main(
+        track_directory=config.get('paths', 'track_directory'),
+        W=config.getint('train', 'W'),
+        H=config.getint('train', 'H'),
+        beta_max=config.getfloat('train', 'beta_max'),
+        threshold=config.getint('train', 'threshold'),
+        plot=config.getboolean('train', 'plot')
+    )

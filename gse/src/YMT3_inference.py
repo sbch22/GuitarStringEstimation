@@ -293,12 +293,15 @@ def process_track(track, model):
                 onset=note.onset,
                 offset=note.offset,
                 velocity=note.velocity,
+                pitch=round(440 * 2 ** ((note.pitch - 69) / 12), 3)
+
             )
 
             # Wrap it into a FeatureNote
             fnote = FeatureNote(
                 origin='model',
-                attributes=attr
+                attributes=attr,
+                valid=True
             )
 
             # Append to this track’s note list
@@ -309,18 +312,46 @@ def process_track(track, model):
     track.match_notes(delta_seconds, track.notes)
 
     string_hex_audio = track.audio.hex_debleeded
-    good_notes_before = [n for n in track.notes if n.origin == "model" and n.match == True]
     track.match_notes_between_strings(string_hex_audio, 0.05, track.notes)
-    good_notes_after = [n for n in track.notes if n.origin == "model" and n.match == True]
-    notes_misclassified_through_bleed = len(good_notes_before) - len(good_notes_after)
-    print(notes_misclassified_through_bleed)
 
-    matched_notes = [n for n in track.notes if n.match]
-    unmatched_notes = [n for n in track.notes if not n.match]
+    for note in track.notes:
+        if note.valid:
+            # calls whatfret method and fills fret from f0 & string index
+            note.what_fret()
 
-    print(f"Matched Notes: {len(matched_notes)}")
-    print(f"Unmatched Notes: {len(unmatched_notes)}")
-    print(f"Match Ratio: {len(matched_notes) / len(track.notes):.3f}")
+    filter_analysis(track.notes)
+
+    # save into new valid notes list
+    track.save_valid_notes_list()
+
+    print("Next Track ...")
+
+
+def filter_analysis(notes):
+    """
+    Checks notes.filter_reason and counts occurrences.
+
+    Args:
+        notes: List of FeatureNote objects
+
+    Returns:
+        Dict with filter reason and number of notes filtered.
+    """
+    errors = {}
+    for note in notes:
+        if not note.valid and hasattr(note, 'filter_reason'):
+            reason = note.filter_reason
+            errors[reason] = errors.get(reason, 0) + 1
+
+    # Print results
+    print("\nFilter Analysis:")
+    for reason, count in sorted(errors.items(), key=lambda x: x[1], reverse=True):
+        print(f"  {reason}: {count} notes")
+    print(f"Total filtered: {sum(errors.values())}")
+    print(f"Total valid: {sum(1 for n in notes if n.valid)}\n")
+
+    return errors
+
 
 
 def main(track_directory):

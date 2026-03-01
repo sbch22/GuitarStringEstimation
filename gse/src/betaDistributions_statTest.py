@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt
 from scipy.stats import beta, shapiro, bartlett, levene, f_oneway
 from typing import Dict, List, Tuple
 from collections import defaultdict
+from configparser import ConfigParser
+from pathlib import Path
 
 
 def check_variance_homogeneity(string_values: List[np.ndarray],
@@ -113,14 +115,21 @@ def plot_beta_distributions(betas: Dict[int, List[float]], beta_max) -> List[np.
         plt.xlabel('Beta Values')
         plt.ylabel('Relative Frequency')
         plt.legend()
-        plt.xlim(0, beta_max)
+        plt.xlim(0, 2e-4)
     plt.show()
 
     return string_values
 
 
 def main():
-    track_directory = '../noteData/GuitarSet/train/dev/'
+    # read config
+    config = ConfigParser()
+    config.read('config.ini')
+    beta_max = config.getfloat('train', 'beta_max')
+    track_directory = config.get('paths', 'track_directory')
+    print(f"Beta Max: {beta_max}")
+
+    print(track_directory)
 
     filepaths = [
         os.path.join(track_directory, filename)
@@ -133,10 +142,13 @@ def main():
 
     for filepath in filepaths:
         with open(filepath, "rb") as f:
-            track = pickle.load(f)
+            try:
+                track = pickle.load(f)
+            except EOFError:
+                continue
 
         for note in track.notes:
-            if note.match is not True:
+            if note.valid is not True:
                 continue
             if note.features is None:
                 continue
@@ -144,21 +156,38 @@ def main():
                 continue
 
             string_index = note.attributes.string_index
+            if note.origin == "single_note":
+                string_index += -1
             betas_by_string[string_index].extend(note.features.betas)
 
-    string_values = plot_beta_distributions(betas_by_string, beta_max = 2e-4)
+
+    cleaned_betas_by_string = plot_beta_distributions(betas_by_string, beta_max)
+
+
+    # 👉 In ndarray umwandeln (object dtype, weil unterschiedlich lang)
+    betas_by_string_ndarray = np.array(
+        [np.array(cleaned_betas_by_string[i]) for i in range(6)],
+        dtype=object
+    )
+    # save ndarray in source folder as betas_dev.npy
+
+    p = Path(track_directory)
+
+    last_three = p.parts[-3:]
+    betas_savename = "betas_" + "_".join(last_three) + ".npy"
+    np.save(betas_savename, betas_by_string_ndarray)
 
 
 
     # Perform statistical tests if we have multiple strings with noteData
-    if len(string_values) > 1:
+    if len(cleaned_betas_by_string) > 1:
         # Test for variance homogeneity
-        test_name, var_stat, var_p = check_variance_homogeneity(string_values)
+        test_name, var_stat, var_p = check_variance_homogeneity(cleaned_betas_by_string)
         print(f"{test_name}: Statistic = {var_stat:.3f}, p-value = {var_p:.3f}")
 
-        # Perform Welch's ANOVA
-        f_stat, p_value_anova = perform_welch_anova(string_values)
-        print(f"Welch's ANOVA - F-statistic: {f_stat:.3f}, p-value: {p_value_anova:.3f}")
+        # Perform ANOVA -> vielleich Welch?
+        f_stat, p_value_anova = perform_welch_anova(cleaned_betas_by_string)
+        print(f"ANOVA - F-statistic: {f_stat:.3f}, p-value: {p_value_anova:.3f}")
 
 
 if __name__ == "__main__":
