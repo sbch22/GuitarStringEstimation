@@ -7,7 +7,7 @@ from configparser import ConfigParser
 
 # import functions
 import YMT3_inference
-import extract_partials
+import find_partials
 
 
 

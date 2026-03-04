@@ -244,3 +244,8 @@ class Track:
         """
         self.valid_notes = [note for note in self.notes if note.valid and note.origin == 'gt']
 
+    def cumulate_all_valid_notes(self):
+        valid_notes = [n for n in self.notes if n.valid]
+
+        return valid_notes
+

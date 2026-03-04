@@ -396,7 +396,7 @@ def main(track_directory):
 
     file_counter = 0
 
-    files_to_analyze = 20
+    # files_to_analyze = 20
 
     # Process each audio file in the directory
     for filename in os.listdir(track_directory):
@@ -405,10 +405,6 @@ def main(track_directory):
             continue
 
         filepath = os.path.join(track_directory, filename)
-        """
-        temporary fix 
-        --> project should be refactore into a common folder, amt folder, gse folder
-        """
 
         with open(filepath, "rb") as f:
             track = pickle.load(f)
@@ -416,13 +412,15 @@ def main(track_directory):
         # Process the file with debug mode setting
         process_track(track, model)
 
-        dev_save_path = os.path.join(track_directory, 'dev', filename)
+        # dev_save_path = os.path.join(track_directory, 'dev', filename)
+        save_path = os.path.join(track_directory, filename)
 
-        track.save(dev_save_path)
-        print(f"pickled model-matched note object {filename} into {dev_save_path}.")
+        track.save(save_path)
+        print(f"pickled model-matched note object {filename} into {save_path}.")
         file_counter += 1
         print(f"Processed file {file_counter}: {filename}")
-        if file_counter >= files_to_analyze: break
+
+        # if file_counter >= files_to_analyze: break
 
 if __name__ == "__main__":
     main('../noteData/GuitarSet/train/')

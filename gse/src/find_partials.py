@@ -384,7 +384,7 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot, thr
 
         # Errors in Filtering
         if note.partials == None:
-            note.filter_reason = 'partials found'
+            note.filter_reason = 'no partials found'
 
 
 def process_single_file(filepath, W, H, beta_max, plot, threshold):
@@ -413,25 +413,15 @@ def process_single_file(filepath, W, H, beta_max, plot, threshold):
 
 
 
-def create_train_config():
-    config = ConfigParser()
 
-    config['train'] = {
-        'W': '4096',
-        'H': '256',
-        'beta_max': '2e-4',
-        'threshold': '-50',
-        'plot': False
-    }
 
-    config['paths'] = {
-        'track_directory': '../noteData/GuitarSet/train/dev/'
-    }
-
-    with open('config.ini', 'w') as f:
-        config.write(f)
-
-def main(track_directory, W, H, beta_max, threshold, plot):
+def main(config):
+    track_directory = config.get('paths', 'track_directory')
+    W = config.getint('train', 'W')
+    H = config.getint('train', 'H')
+    beta_max = config.getfloat('train', 'beta_max')
+    threshold = config.getint('train', 'threshold')
+    plot = config.getboolean('train', 'plot')
 
     # Collect all file paths
     filepaths = [
@@ -456,15 +446,7 @@ def main(track_directory, W, H, beta_max, threshold, plot):
 
 
 if __name__ == "__main__":
-    create_train_config()
     config = ConfigParser()
     config.read('config.ini')
 
-    main(
-        track_directory=config.get('paths', 'track_directory'),
-        W=config.getint('train', 'W'),
-        H=config.getint('train', 'H'),
-        beta_max=config.getfloat('train', 'beta_max'),
-        threshold=config.getint('train', 'threshold'),
-        plot=config.getboolean('train', 'plot')
-    )
+    main(config)

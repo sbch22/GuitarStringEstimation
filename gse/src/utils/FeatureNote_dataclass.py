@@ -5,10 +5,38 @@ import math
 
 @dataclass
 class Features:
-    betas: List[float] = field(default_factory=list)
-    inharmonicity: Optional[float] = None
-    spectral_flux: Optional[float] = None
-    spectral_centroid: Optional[float] = None
+    beta: Optional[float] = None
+    betas_measures: Optional[np.ndarray] = None
+    valid_partials: Optional[np.ndarray] = None
+    rel_partial_amplitudes: Optional[np.ndarray] = None
+    amp_decay_coefficients: Optional[np.ndarray] = None
+    rel_freq_deviations: Optional[np.ndarray] = None
+
+    feature_vector: Optional[np.ndarray] = None
+
+    def fill_feature_vector(self) -> None:
+        segments = {
+            "betas_measures":         self.betas_measures,
+            "valid_partials":         self.valid_partials,
+            "rel_partial_amplitudes": self.rel_partial_amplitudes,
+            "amp_decay_coefficients": self.amp_decay_coefficients,
+            "rel_freq_deviations":    self.rel_freq_deviations,
+        }
+
+        missing = [k for k, v in segments.items() if v is None]
+        if missing:
+            raise ValueError(f"Features not yet computed: {missing}")
+
+        self.feature_vector = np.concatenate(
+            [np.asarray(v, dtype=float).ravel() for v in segments.values()],
+            axis=0
+        )
+
+    # def remove_nan_static_feature_vektors(self) -> None:
+    #     # iterate through feature
+    #
+    #     self.feature_vector = np.nan_to_num(self.feature_vector, nan=0.0)
+
 
 @dataclass
 class Attributes:
