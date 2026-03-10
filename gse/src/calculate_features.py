@@ -10,6 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from utils.FeatureNote_dataclass import Features
 from configparser import ConfigParser
+import pyfar as pf
 
 from find_partials import filter_analysis
 
@@ -97,9 +98,6 @@ def relative_amplitude_deviations(partials):
     amps = partials.amplitudes  # (T, K)
     T, K = amps.shape
 
-    median_amps = np.nanmedian(amps, axis=0)  # (K,)
-    median_amps = median_amps / median_amps[0]  # normalize to fundamental
-
     valid = np.isfinite(amps)         # (T, K)
     has_valid = valid.any(axis=0)     # (K,) — guard for all-NaN partials
 
@@ -113,8 +111,37 @@ def relative_amplitude_deviations(partials):
     amps_end   = np.where(has_valid, amps[last_idx,  k_idx], np.nan)  # (K,)
 
     amp_slopes = - (amps_start - amps_end)  # (K,) — NaN where partial fully absent
+    rel_amps = amps / amps[:, 0:1]
 
-    return median_amps[1:], amp_slopes
+    median_amps = np.nanmedian(
+        rel_amps, axis=0
+    )  # (K,)
+    mean_amps = np.nanmean(
+        rel_amps, axis=0
+    )  # (K,)
+    min_amps = np.nanmin(
+        rel_amps, axis=0
+    )  # (K,)
+    max_amps = np.nanmax(
+        rel_amps, axis=0
+    )  # (K,)
+    std_amps = np.nanstd(
+        rel_amps, axis=0
+    )  # (K,)
+    var_amps = np.nanvar(
+        rel_amps, axis=0
+    )  # (K,)
+
+    rel_amp_measures = np.array([
+        median_amps,
+        mean_amps,
+        min_amps,
+        max_amps,
+        std_amps,
+        var_amps,
+    ])
+
+    return rel_amp_measures, amp_slopes
 
 
 def relative_freq_deviations(partials, beta):
@@ -137,13 +164,43 @@ def relative_freq_deviations(partials, beta):
     # Absolute deviation
     abs_freq_deviations = ideal_f_k - freqs_k   # (T, K-1)
 
-    # Relative deviation, median across time
-    rel_freq_deviations = np.nanmedian(
+
+    # statistical measures
+    median_freq_deviations = np.nanmedian(
+        abs_freq_deviations / freqs_k,
+        axis=0
+    )  # (K-1,)
+    mean_freq_deviations = np.nanmean(
+        abs_freq_deviations / freqs_k,
+        axis=0
+    )  # (K-1,)
+    min_freq_deviations = np.nanmin(
+        abs_freq_deviations / freqs_k,
+        axis=0
+    )  # (K-1,)
+    max_freq_deviations = np.nanmax(
+        abs_freq_deviations / freqs_k,
+        axis=0
+    )  # (K-1,)
+    std_freq_deviations = np.nanstd(
+        abs_freq_deviations / freqs_k,
+        axis=0
+    )  # (K-1,)
+    var_freq_deviations = np.nanvar(
         abs_freq_deviations / freqs_k,
         axis=0
     )  # (K-1,)
 
-    return rel_freq_deviations
+    freq_deviation_measures = np.array([
+        median_freq_deviations,
+        mean_freq_deviations,
+        min_freq_deviations,
+        max_freq_deviations,
+        std_freq_deviations,
+        var_freq_deviations,
+    ])
+
+    return freq_deviation_measures
 
 
 def process_single_file(args):
@@ -151,8 +208,25 @@ def process_single_file(args):
 
     print(f"Processing {filepath}")
 
-    with open(filepath, "rb") as f:
-        track = pickle.load(f)
+    # load track
+    try:
+        with open(filepath, "rb") as f:
+            track = pickle.load(f)
+    except FileNotFoundError:
+        print(f"File not found: {filepath}")
+        return None
+    except EOFError:
+        print(f"File corrupted/empty: {filepath}")
+        return None
+    except Exception as e:
+        print(f"Unexpected error loading {filepath}: {e}")
+        return None
+
+    # load track audio
+    filepath = track.audio_paths["mono_mic"]
+    track_audio = pf.io.read_audio(filepath)
+    sr = track_audio.sampling_rate
+
 
     for note in track.notes:
         if note.valid is not True:
@@ -171,6 +245,11 @@ def process_single_file(args):
             if len(betas_filtered) == 0:
                 note.valid = False
                 continue  # no valid betas after filtering, skip note
+
+            # assign attributed f0 to features
+            note.features.f0 = note.attributes.pitch
+
+
             median_beta = np.median(betas_filtered, axis=0)
 
             betas_measures = np.array([
@@ -179,27 +258,25 @@ def process_single_file(args):
                 np.std(betas_filtered, axis=0),
                 np.var(betas_filtered, axis=0),
                 np.min(betas_filtered, axis=0),
-                np.max(betas_filtered, axis=0)]) # todo: skewness & curtuosis
+                np.max(betas_filtered, axis=0)]) # todo: skewness & curtuosis, mode
 
-            med_amp_deviations, amp_decay_coefficients = relative_amplitude_deviations(note.partials) # (25,)
-            # todo: statistics over amplitudes
+            amp_deviation_measures, amp_decay_coefficients = relative_amplitude_deviations(note.partials) # (25,)
 
-            med_freq_deviations = relative_freq_deviations(note.partials, median_beta)
-            # todo: statistics over freq deviations
+            freq_deviation_measures = relative_freq_deviations(note.partials, median_beta)
 
             # valid_slopes = np.isfinite(amp_decay_coefficients)
-            valid_partials = np.isfinite(med_amp_deviations).astype(int) # make 0 and 1
+            valid_partials = np.isfinite(amp_decay_coefficients).astype(int) # make 0 and 1
 
             # write into note.features
             note.features.beta = median_beta
             note.features.betas_measures = betas_measures
 
-            # todo: warum kann rel_freq deviation bei f0, > 0 sein?
             note.features.valid_partials = valid_partials
-            note.features.rel_partial_amplitudes = med_amp_deviations
-            note.features.rel_freq_deviations = med_freq_deviations
+            note.features.rel_partial_amplitudes = amp_deviation_measures
+            note.features.rel_freq_deviations = freq_deviation_measures
             note.features.amp_decay_coefficients = amp_decay_coefficients  # was on note, not note.features
             note.features.fill_feature_vector()
+
 
     track.save(filepath)
     print(f"Saved {filepath}")
@@ -209,11 +286,11 @@ def process_single_file(args):
 
 def main(config):
     # read config
-    W = config.getint('train', 'W')
-    H = config.getint('train', 'H')
-    beta_max = config.getfloat('train', 'beta_max')
-    threshold = config.getint('train', 'threshold')
-    plot = config.getboolean('train', 'plot')
+    W = config.getint('params', 'W')
+    H = config.getint('params', 'H')
+    beta_max = config.getfloat('params', 'beta_max')
+    threshold = config.getint('params', 'threshold')
+    plot = config.getboolean('params', 'plot')
 
     track_directory = config.get('paths', 'track_directory')
 
@@ -244,6 +321,6 @@ if __name__ == "__main__":
 
     # load config config
     config = ConfigParser()
-    config.read('config.ini')
+    config.read('config_train.ini')
 
     main(config)

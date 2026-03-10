@@ -5,7 +5,7 @@ import jams
 import glob
 from collections import defaultdict
 from gse.src.utils.FeatureNote_dataclass import FeatureNote, Attributes, Features
-from gse.src.utils.Track_dataclass import Track, TrackAudio
+from gse.src.utils.Track_dataclass import Track
 import pyfar as pf
 import csv
 
@@ -53,7 +53,6 @@ def create_track_from_jam(jam_file: str, track_id: str) -> Track:
     track = Track(
         name=track_id,
         notes=notes,
-        audio=TrackAudio(),  # can load later
         metadata={"duration_sec": jam.file_metadata.duration, "source": "GuitarSet"},
     )
 
@@ -63,23 +62,6 @@ def create_track_from_jam(jam_file: str, track_id: str) -> Track:
     track.notes = Track.trim_overlapping_notes(track.notes)
 
     return track
-
-def load_track_audio(track: Track, data_dir: str):
-    base_name = track.name  # e.g. "00_BN1-129-Eb_comp"
-
-    paths = {
-        "mono_mic": os.path.join(data_dir, "audio_mono-mic", f"{base_name}_mic.wav"),
-        "hex_debleeded": os.path.join(data_dir, "audio_hex-pickup_debleeded", f"{base_name}_hex_cln.wav"),
-        "hex_mono_mix": os.path.join(data_dir, "audio_mono-pickup_mix", f"{base_name}_mix.wav"),
-        "hex": os.path.join(data_dir, "audio_hex-pickup_original", f"{base_name}_hex.wav"),
-    }
-
-    for attr, file_path in paths.items():
-        if os.path.exists(file_path):
-            print(f"Loading {attr} from {file_path}")
-            setattr(track.audio, attr, pf.io.read_audio(file_path))
-        else:
-            print(f"Missing {attr} file for {base_name}: {file_path}")
 
 def preprocess_dataset(data_dir, save_dir):
     all_ann_files = glob.glob(os.path.join(data_dir, 'annotation/*.jams'), recursive=True)
@@ -106,7 +88,15 @@ def preprocess_dataset(data_dir, save_dir):
         ann_filename = os.path.join(data_dir, 'annotation', guitarset_id + ".jams")
 
         track = create_track_from_jam(ann_filename, guitarset_id)
-        load_track_audio(track, data_dir) # load all needed audio files
+        # audio
+        base_name = track.name  # e.g. "00_BN1-129-Eb_comp"
+        paths = {
+            "mono_mic": os.path.join(data_dir, "audio_mono-mic", f"{base_name}_mic.wav"),
+            "hex_debleeded": os.path.join(data_dir, "audio_hex-pickup_debleeded", f"{base_name}_hex_cln.wav"),
+            "hex_mono_mix": os.path.join(data_dir, "audio_mono-pickup_mix", f"{base_name}_mix.wav"),
+            "hex": os.path.join(data_dir, "audio_hex-pickup_original", f"{base_name}_hex.wav"),
+        }
+        track.audio_paths = paths
 
         track_filename = os.path.basename(ann_filename).replace('.jams', '_track.pkl')
         save_path = os.path.join(save_dir, 'GuitarSet', 'train',  track_filename)
@@ -134,7 +124,16 @@ def preprocess_dataset(data_dir, save_dir):
         ann_filename = os.path.join(data_dir, 'annotation', guitarset_id + ".jams")
 
         track = create_track_from_jam(ann_filename, guitarset_id)
-        load_track_audio(track, data_dir)  # load all needed audio files
+
+        # audio
+        base_name = track.name  # e.g. "00_BN1-129-Eb_comp"
+        paths = {
+            "mono_mic": os.path.join(data_dir, "audio_mono-mic", f"{base_name}_mic.wav"),
+            "hex_debleeded": os.path.join(data_dir, "audio_hex-pickup_debleeded", f"{base_name}_hex_cln.wav"),
+            "hex_mono_mix": os.path.join(data_dir, "audio_mono-pickup_mix", f"{base_name}_mix.wav"),
+            "hex": os.path.join(data_dir, "audio_hex-pickup_original", f"{base_name}_hex.wav"),
+        }
+        track.audio_paths = paths
 
         print(Track.__module__)
 

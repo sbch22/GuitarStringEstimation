@@ -1,6 +1,8 @@
 import os
 import sys
 
+from librosa.feature import spectral_centroid
+
 sys.path.append(os.path.abspath(''))
 
 import scipy
@@ -15,7 +17,9 @@ from scipy.signal import medfilt
 import librosa as lb
 import sounddevice as sd
 from configparser import ConfigParser
-
+from multiprocessing import Pool, cpu_count
+import pyfar as pf
+import librosa as lib
 
 def filter_analysis(notes):
     """
@@ -270,7 +274,8 @@ def extract_harmonic_note_audio(note_audio, W, H, sr, plot):
 
 
 def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot, threshold):
-    string_hex_audio = track.audio.hex_debleeded
+    filepath = track.audio_paths["hex_debleeded"]
+    string_hex_audio = pf.io.read_audio(filepath)
     sr = string_hex_audio.sampling_rate
 
     # 6 x n_samples Matrix
@@ -304,6 +309,44 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot, thr
         # Apply Hann-Window on each frame
         window = scipy.signal.windows.hann(W, sym=False)
         harmonic_audio = harmonic_audio * window
+
+        """ Spectral Centroid """
+        S = np.abs(np.fft.rfft(harmonic_audio, n=W, axis=1)).T  # shape: (2049, 24)
+        sc = lib.feature.spectral_centroid(S=S, sr=sr, n_fft=W)
+
+        median = np.nanmedian(
+            sc, axis=1
+        )
+        mean = np.nanmean(
+            sc,
+            axis=1
+        )
+        min = np.nanmin(
+            sc,
+            axis=1
+        )
+        max = np.nanmax(
+            sc,
+            axis=1
+        )
+        std = np.nanstd(
+            sc,
+            axis=1
+        )  # (K-1,)
+        var = np.nanvar(
+            sc,
+            axis=1
+        )  # (K-1,)
+
+        sc_measures = np.array([
+            median,
+            mean,
+            min,
+            max,
+            std,
+            var,
+        ])
+        note.features.spectral_centroid = sc_measures
 
         # calculate accurate freq & amplitude for all possible bins
         inst_freq, inst_amp = instantaneous_frequency(harmonic_audio, W, H, sr, window)
@@ -389,10 +432,19 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot, thr
 
 def process_single_file(filepath, W, H, beta_max, plot, threshold):
     """Worker function to process a single file"""
-
-    # Load track
-    with open(filepath, "rb") as f:
-        track = pickle.load(f)
+    # load track
+    try:
+        with open(filepath, "rb") as f:
+            track = pickle.load(f)
+    except FileNotFoundError:
+        print(f"File not found: {filepath}")
+        return None
+    except EOFError:
+        print(f"File corrupted/empty: {filepath}")
+        return None
+    except Exception as e:
+        print(f"Unexpected error loading {filepath}: {e}")
+        return None
 
     num_valid_notes_gt = len([note for note in track.notes if note.valid == True and note.origin == 'gt'])
     num_invalid_notes_gt = len([note for note in track.notes if note.valid == False and note.origin == 'gt'])
@@ -401,27 +453,26 @@ def process_single_file(filepath, W, H, beta_max, plot, threshold):
     process_track_extract_partials(track, W, H, beta_max, n_partials=25, plot=plot, threshold = threshold)
 
     filter_analysis(track.notes)
-    # Save track
     track.save(filepath)
 
     return num_valid_notes_gt, num_invalid_notes_gt
 
 
-    # except Exception as e:
-    #     return f"Error processing {filepath}: {str(e)}"
 
 
-
-
+def process_file_wrapper(args):
+    filepath, idx, total, W, H, beta_max, plot, threshold = args
+    print(f"\n[{idx}/{total}] Processing {filepath}")
+    return process_single_file(filepath, W, H, beta_max, plot, threshold)
 
 
 def main(config):
     track_directory = config.get('paths', 'track_directory')
-    W = config.getint('train', 'W')
-    H = config.getint('train', 'H')
-    beta_max = config.getfloat('train', 'beta_max')
-    threshold = config.getint('train', 'threshold')
-    plot = config.getboolean('train', 'plot')
+    W = config.getint('params', 'W')
+    H = config.getint('params', 'H')
+    beta_max = config.getfloat('params', 'beta_max')
+    threshold = config.getint('params', 'threshold')
+    plot = config.getboolean('params', 'plot')
 
     # Collect all file paths
     filepaths = [
@@ -430,16 +481,21 @@ def main(config):
         if os.path.isfile(os.path.join(track_directory, filename))
     ]
 
-    total_valid_notes = 0
-    total_invalid_notes = 0
+    total = len(filepaths)
+    args_list = [
+        (filepath, idx, total, W, H, beta_max, plot, threshold)
+        for idx, filepath in enumerate(filepaths, 1)
+    ]
 
-    # Process files one by one (DEBUG FRIENDLY)
-    for i, filepath in enumerate(filepaths, 1):
-        print(f"\n[{i}/{len(filepaths)}] Processing {filepath}")
-        num_valid_notes_gt, num_invalid_notes_gt = process_single_file(filepath, W, H, beta_max, plot, threshold)
+    num_workers = cpu_count()
+    print(f"Processing {total} files using {num_workers} workers...")
 
-        total_valid_notes += num_valid_notes_gt
-        total_invalid_notes += num_invalid_notes_gt
+    with Pool(processes=num_workers) as pool:
+        results = pool.map(process_file_wrapper, args_list)
+
+    print(f"Done. Results: {results}")
+    total_valid_notes = sum(r[0] for r in results)
+    total_invalid_notes = sum(r[1] for r in results)
 
     print(f"Total valid notes: {total_valid_notes}")
     print(f"Total invalid notes: {total_invalid_notes}")
@@ -447,6 +503,6 @@ def main(config):
 
 if __name__ == "__main__":
     config = ConfigParser()
-    config.read('config.ini')
+    config.read('config_train.ini')
 
     main(config)

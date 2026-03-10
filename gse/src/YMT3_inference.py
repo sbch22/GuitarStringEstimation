@@ -36,6 +36,7 @@ from typing import Dict, List
 import torchaudio
 from gse.src.utils.FeatureNote_dataclass import FeatureNote, Attributes
 import numpy as np
+import pyfar as pf
 
 
 
@@ -263,7 +264,12 @@ def transcribe_notes(model, audio_info: Dict, audio_tensor: torch.Tensor, sample
 
 def process_track(track, model):
     # process hex signal
-    strings_signal = track.audio.hex_debleeded
+    # strings_signal = track.audio.hex_debleeded
+
+    # load audio
+    filepath_hex_debeleed = track.audio_paths["hex_debleeded"]
+    strings_signal = pf.io.read_audio(filepath_hex_debeleed)
+
     # strings_signal = track.audio.hex
     sample_rate = strings_signal.sampling_rate
     strings_audio_data = strings_signal.time
@@ -311,17 +317,17 @@ def process_track(track, model):
     delta_seconds = 0.050  # <-- 50 ms
     track.match_notes(delta_seconds, track.notes)
 
-    string_hex_audio = track.audio.hex_debleeded
-    track.match_notes_between_strings(string_hex_audio, 0.05, track.notes)
+    # load audio
+    # string_hex_audio = track.audio.hex_debleeded
+    # todo: check strings signal equal results after audio load change
+    track.match_notes_between_strings(strings_signal, 0.05, track.notes)
 
     for note in track.notes:
         if note.valid:
-            # calls whatfret method and fills fret from f0 & string index
             note.what_fret()
 
     filter_analysis(track.notes)
 
-    # save into new valid notes list
     track.save_valid_notes_list()
 
     print("Next Track ...")
@@ -396,7 +402,7 @@ def main(track_directory):
 
     file_counter = 0
 
-    # files_to_analyze = 20
+    files_to_analyze = 32
 
     # Process each audio file in the directory
     for filename in os.listdir(track_directory):
@@ -412,7 +418,7 @@ def main(track_directory):
         # Process the file with debug mode setting
         process_track(track, model)
 
-        # dev_save_path = os.path.join(track_directory, 'dev', filename)
+        # save_path = os.path.join(track_directory, 'dev', filename)
         save_path = os.path.join(track_directory, filename)
 
         track.save(save_path)
@@ -424,3 +430,4 @@ def main(track_directory):
 
 if __name__ == "__main__":
     main('../noteData/GuitarSet/train/')
+    # main('../noteData/GuitarSet/test/')
