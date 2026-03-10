@@ -10,22 +10,14 @@ DRUM_OFFSET_TIME = 0.01  # in seconds
 MINIMUM_OFFSET_TIME = 0.01  # this is used to avoid zero-length notes
 DRUM_PROGRAM = 128
 
-@dataclass
-class TrackAudio:
-    mono_mic: Optional[pf.Signal] = None
-    hex_debleeded: Optional[pf.Signal] = None
-    hex_mono_mix: Optional[pf.Signal] = None
-    hex: Optional[pf.Signal] = None
-
 
 @dataclass
 class Track:
     name: str
-    audio: Optional[TrackAudio] = None
+    audio_paths: Optional[dict] = None
     notes: List["FeatureNote"] = field(default_factory=list)
     valid_notes: List["FeatureNote"] = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
-
 
     def save(self, path: str):
         """Save the track (and its notes) to disk."""
@@ -244,8 +236,7 @@ class Track:
         """
         self.valid_notes = [note for note in self.notes if note.valid and note.origin == 'gt']
 
-    def cumulate_all_valid_notes(self):
-        valid_notes = [n for n in self.notes if n.valid]
-
+    def cumulate_all_valid_notes(self, origin):
+        valid_notes = [n for n in self.notes if n.valid and n.origin == origin]
         return valid_notes
 

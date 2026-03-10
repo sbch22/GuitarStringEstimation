@@ -6,11 +6,13 @@ import math
 @dataclass
 class Features:
     beta: Optional[float] = None
+    f0: Optional[float] = None
     betas_measures: Optional[np.ndarray] = None
     valid_partials: Optional[np.ndarray] = None
     rel_partial_amplitudes: Optional[np.ndarray] = None
     amp_decay_coefficients: Optional[np.ndarray] = None
     rel_freq_deviations: Optional[np.ndarray] = None
+    spectral_centroid: Optional[np.ndarray] = None
 
     feature_vector: Optional[np.ndarray] = None
 
@@ -32,12 +34,6 @@ class Features:
             axis=0
         )
 
-    # def remove_nan_static_feature_vektors(self) -> None:
-    #     # iterate through feature
-    #
-    #     self.feature_vector = np.nan_to_num(self.feature_vector, nan=0.0)
-
-
 @dataclass
 class Attributes:
     pitch: Optional[float] = None # frequency in Hz
@@ -52,6 +48,7 @@ class Attributes:
     fret: Optional[float] = None
 
 
+
 @dataclass
 class Partials:
     frametimes: np.ndarray[float]
@@ -61,20 +58,14 @@ class Partials:
 
 @dataclass
 class FeatureNote:
-    # Matching / bookkeeping
     origin: Optional[str] = None # GT, model or match
     valid: bool = False
+    match: bool = False
     filter_reason: Optional[str] = None # list of strings
-
-    # Attributes: pitch, onset, offset, etc.
     attributes: Optional[Attributes] = None
-    # audio feature vector
     features: Optional[Features] = None
-
-    # Estimations
-    estimated_string: Optional[int] = None
-
     partials: Optional[Partials] = None
+    string_probs: Optional[np.ndarray] = None
 
     def delete_from(self, notes: list):
         """

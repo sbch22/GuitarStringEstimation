@@ -58,6 +58,6 @@ def main(config):
 
 if __name__ == '__main__':
     config = ConfigParser()
-    config.read('config.ini')
+    config.read('config_train.ini')
 
     main(config)
