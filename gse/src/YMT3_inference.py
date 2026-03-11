@@ -34,7 +34,8 @@ import torch
 import _pickle as pickle
 from typing import Dict, List
 import torchaudio
-from gse.src.utils.FeatureNote_dataclass import FeatureNote, Attributes
+from gse.src.utils.FeatureNote_dataclass import FeatureNote, Attributes, FilterReason
+from gse.src.find_partials import filter_analysis
 import numpy as np
 import pyfar as pf
 
@@ -263,9 +264,6 @@ def transcribe_notes(model, audio_info: Dict, audio_tensor: torch.Tensor, sample
 
 
 def process_track(track, model):
-    # process hex signal
-    # strings_signal = track.audio.hex_debleeded
-
     # load audio
     filepath_hex_debeleed = track.audio_paths["hex_debleeded"]
     strings_signal = pf.io.read_audio(filepath_hex_debeleed)
@@ -316,47 +314,18 @@ def process_track(track, model):
     # match notes with GT (use seconds)
     delta_seconds = 0.050  # <-- 50 ms
     track.match_notes(delta_seconds, track.notes)
+    filter_analysis(track.valid_notes)
 
-    # load audio
-    # string_hex_audio = track.audio.hex_debleeded
-    # todo: check strings signal equal results after audio load change
     track.match_notes_between_strings(strings_signal, 0.05, track.notes)
+    filter_analysis(track.valid_notes)
 
     for note in track.notes:
         if note.valid:
             note.what_fret()
 
-    filter_analysis(track.notes)
-
     track.save_valid_notes_list()
-
     print("Next Track ...")
 
-
-def filter_analysis(notes):
-    """
-    Checks notes.filter_reason and counts occurrences.
-
-    Args:
-        notes: List of FeatureNote objects
-
-    Returns:
-        Dict with filter reason and number of notes filtered.
-    """
-    errors = {}
-    for note in notes:
-        if not note.valid and hasattr(note, 'filter_reason'):
-            reason = note.filter_reason
-            errors[reason] = errors.get(reason, 0) + 1
-
-    # Print results
-    print("\nFilter Analysis:")
-    for reason, count in sorted(errors.items(), key=lambda x: x[1], reverse=True):
-        print(f"  {reason}: {count} notes")
-    print(f"Total filtered: {sum(errors.values())}")
-    print(f"Total valid: {sum(1 for n in notes if n.valid)}\n")
-
-    return errors
 
 
 
@@ -429,5 +398,5 @@ def main(track_directory):
         # if file_counter >= files_to_analyze: break
 
 if __name__ == "__main__":
-    main('../noteData/GuitarSet/train/')
+    main('../noteData/GuitarSet/train/dev/')
     # main('../noteData/GuitarSet/test/')

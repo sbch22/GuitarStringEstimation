@@ -27,6 +27,7 @@ from sklearn.model_selection import StratifiedKFold, cross_validate
 
 import calculate_features
 import find_partials
+from find_partials import filter_analysis
 
 
 def main():
@@ -37,14 +38,20 @@ def main():
     config_train = ConfigParser()
     config_train.read('config_train.ini')
 
-    # Run scripts with test config
-    find_partials.main(
-        config_train
-    )
 
-    calculate_features.main(
-        config_train
-    )
+
+    # --- Step 1: Find partials ---
+    all_notes = find_partials.main(config_train)
+    filter_analysis(all_notes, step="find_partials")
+
+    # --- Step 2: Calculate features ---
+    all_notes = calculate_features.main(config_train)
+    filter_analysis(all_notes, step="calculate_features")
+
+    # --- Final cumulative picture ---
+    filter_analysis(all_notes, step=None)  # shows all steps together
+
+
 
     track_directory = config_train.get('paths', 'track_directory')
 
