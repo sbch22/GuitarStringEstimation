@@ -49,47 +49,54 @@ class Attributes:
     string_index: Optional[int] = None
     fret: Optional[float] = None
 
-
-
 @dataclass
 class Partials:
     frametimes: np.ndarray[float]
     frequencies: np.ndarray[float]
     amplitudes: np.ndarray[float]
 
-
-
 class FilterReason(Enum):
     # preprocessing
     FRETTING_INVALID = "what_fret found invalid fret"
+    NO_STRING = "no string found by model"
     MISMATCH_BETWEEN_STRINGS = "note assignment likely wring between strings due to bleed"
     NO_MATCH = "no matching note could be found between model output and ground truth"
     # find_partials.py
     NO_HARMONIC_AUDIO = "no harmonic audio"
     HARMONIC_AUDIO_TOO_SHORT = "harmonic audio too short"
     NO_PARTIALS_FOUND = "no partials found"
+    NO_NOTE = "houston we have a problem"
 
     # calculate_features.py
     FEATURE_EXTRACTION_FAILED = "feature extraction failed"
+    NO_BETAS = "no betas from calculations"
+    NO_BETAS_AFTER_FILTER = "no betas after filtering"
+    NO_FEATURES = "no features"
 
 
 @dataclass
 class FeatureNote:
     origin: Optional[str] = None # GT, model or match
+    dataset: Optional[str] = None
     valid: bool = False
     match: bool = False
-    filter_reason: Optional[str] = None # list of strings
+    filter_reason: Optional[FilterReason] = None # list of strings
+    filter_step: Optional[str] = None
+
     attributes: Optional[Attributes] = None
     features: Optional[Features] = None
     partials: Optional[Partials] = None
     string_probs: Optional[np.ndarray] = None
 
-    # In your Note dataclass
-    def invalidate(self, reason: FilterReason, step: str):
-        """Sets note as invalid with a reason and the pipeline step that caused it."""
+    def invalidate(self, reason: FilterReason, step: str) -> None:
+        """
+        Mark this note as invalid.
+        Because Track.valid_notes is a @property derived from Track.notes,
+        this single call is all you need — no manual list surgery required.
+        """
         self.valid = False
         self.filter_reason = reason
-        self.filter_step = step  # e.g. "find_partials", "calculate_features"
+        self.filter_step = step
 
     def delete_from(self, notes: list):
         """
@@ -98,32 +105,28 @@ class FeatureNote:
         if self in notes:
             notes.remove(self)
 
-    def what_fret(self):
-        """
-        Calculate Fret from String and f0
-        """
-        # source: https://de.wikipedia.org/wiki/Stimmen_einer_Gitarre
-        strings_f0 = {
-            0: 82.42,  # E2
-            1: 110.0,  # A2
+    def what_fret(self) -> None:
+        """Calculate and assign the fret number from string_index and pitch (Hz)."""
+        STRING_OPEN_FREQS = {
+            0: 82.42,   # E2
+            1: 110.00,  # A2
             2: 146.83,  # D3
             3: 196.00,  # G3
             4: 246.94,  # B3
-            5: 329.63  # E4
+            5: 329.63,  # E4
         }
-        string_f0 = strings_f0[self.attributes.string_index]
+
+        if self.attributes.string_index is None:
+            self.invalidate(FilterReason.NO_STRING, step="what_fret")
+            return
+
+        string_f0 = STRING_OPEN_FREQS[self.attributes.string_index]
         f0 = self.attributes.pitch
+        fret = int(round(12 * math.log2(f0 / string_f0)))
 
-        fret = 12 * math.log2(f0 / string_f0)
-
-        # auf nächsten Bund runden
-        fret = int(round(fret))
-
-        # optional clampen: 0 < fret < 24
         if not (0 <= fret <= 24):
-            # print("Unplayable:", self.attributes.pitch, "string", self.attributes.string_index)
             self.attributes.fret = None
-            self.invalidate(FilterReason.FRETTING_INVALID, step="self.what_fret")
+            self.invalidate(FilterReason.FRETTING_INVALID, step="what_fret")
             return
 
         self.attributes.fret = fret

@@ -35,10 +35,10 @@ import _pickle as pickle
 from typing import Dict, List
 import torchaudio
 from gse.src.utils.FeatureNote_dataclass import FeatureNote, Attributes, FilterReason
-from gse.src.find_partials import filter_analysis
+from gse.src.utils.Track_dataclass import filter_analysis
 import numpy as np
 import pyfar as pf
-
+from collections import defaultdict
 
 
 
@@ -263,7 +263,7 @@ def transcribe_notes(model, audio_info: Dict, audio_tensor: torch.Tensor, sample
     return final_notes
 
 
-def process_track(track, model):
+def process_GuitarSet_track(track, model):
     # load audio
     filepath_hex_debeleed = track.audio_paths["hex_debleeded"]
     strings_signal = pf.io.read_audio(filepath_hex_debeleed)
@@ -311,22 +311,16 @@ def process_track(track, model):
             # Append to this track’s note list
             track.notes.append(fnote)
 
-    # match notes with GT (use seconds)
-    delta_seconds = 0.050  # <-- 50 ms
-    track.match_notes(delta_seconds, track.notes)
-    filter_analysis(track.valid_notes)
+    track.match_notes(track, delta=0.050) # 50ms
 
     track.match_notes_between_strings(strings_signal, 0.05, track.notes)
-    filter_analysis(track.valid_notes)
+    # filter_analysis(track.notes, step="match_notes")
 
-    for note in track.notes:
-        if note.valid:
-            note.what_fret()
+    for note in track.valid_notes:
+        note.what_fret()
 
-    track.save_valid_notes_list()
+    filter_analysis(track.notes)
     print("Next Track ...")
-
-
 
 
 def main(track_directory):
@@ -371,7 +365,7 @@ def main(track_directory):
 
     file_counter = 0
 
-    files_to_analyze = 32
+    files_to_analyze = 20
 
     # Process each audio file in the directory
     for filename in os.listdir(track_directory):
@@ -384,8 +378,11 @@ def main(track_directory):
         with open(filepath, "rb") as f:
             track = pickle.load(f)
 
+        # TODO: Call other process track function for other Datasets without hex-recordings,
+        #  maybe the audio path kex (eg. hex) needs to be in config
+
         # Process the file with debug mode setting
-        process_track(track, model)
+        process_GuitarSet_track(track, model)
 
         # save_path = os.path.join(track_directory, 'dev', filename)
         save_path = os.path.join(track_directory, filename)
@@ -395,8 +392,8 @@ def main(track_directory):
         file_counter += 1
         print(f"Processed file {file_counter}: {filename}")
 
-        # if file_counter >= files_to_analyze: break
+        if file_counter >= files_to_analyze: break
 
 if __name__ == "__main__":
-    main('../noteData/GuitarSet/train/dev/')
-    # main('../noteData/GuitarSet/test/')
+    # main('../noteData/GuitarSet/train/')
+    main('../noteData/GuitarSet/test/')
