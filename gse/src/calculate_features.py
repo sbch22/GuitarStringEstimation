@@ -1,18 +1,17 @@
 import os
 import sys
-
-
 sys.path.append(os.path.abspath(''))
+
 import multiprocessing as mp
 import os
 import pickle
 import numpy as np
 import matplotlib.pyplot as plt
-from utils.FeatureNote_dataclass import Features
 from configparser import ConfigParser
 import pyfar as pf
 
-from find_partials import filter_analysis
+from utils.FeatureNote_dataclass import FilterReason
+from utils.FeatureNote_dataclass import Features
 
 
 def filter_betas(betas, beta_max):
@@ -222,65 +221,58 @@ def process_single_file(args):
         print(f"Unexpected error loading {filepath}: {e}")
         return None
 
-    # load track audio
-    filepath = track.audio_paths["mono_mic"]
-    track_audio = pf.io.read_audio(filepath)
-    sr = track_audio.sampling_rate
-
-
-    for note in track.notes:
-        if note.valid is not True:
+    for note in track.valid_notes:
+        betas = estimate_inharmonicity_coefficient_all_frets(
+            note.partials,
+            note.attributes.fret
+        )
+        if len(betas) == 0:
+            note.invalidate(FilterReason.NO_BETAS, step="calculate_features")
             continue
 
-        if note.attributes.fret is not None and note.partials is not None:
-            betas = estimate_inharmonicity_coefficient_all_frets(
-                note.partials,
-                note.attributes.fret
-            )
+        if note.features is None:
+            note.features = Features()
 
-            if note.features is None:
-                note.features = Features()
+        betas_filtered = filter_betas(betas, beta_max)
+        if len(betas_filtered) == 0:
+            note.invalidate(FilterReason.NO_BETAS_AFTER_FILTER, step="calculate_features")
+            continue
 
-            betas_filtered = filter_betas(betas, beta_max)
-            if len(betas_filtered) == 0:
-                note.valid = False
-                continue  # no valid betas after filtering, skip note
+        # assign attributed f0 to features
+        note.features.f0 = note.attributes.pitch
 
-            # assign attributed f0 to features
-            note.features.f0 = note.attributes.pitch
+        median_beta = np.median(betas_filtered, axis=0)
 
+        betas_measures = np.array([
+            np.mean(betas_filtered, axis=0),
+            median_beta,
+            np.std(betas_filtered, axis=0),
+            np.var(betas_filtered, axis=0),
+            np.min(betas_filtered, axis=0),
+            np.max(betas_filtered, axis=0)]) # todo: skewness & curtuosis, mode
 
-            median_beta = np.median(betas_filtered, axis=0)
+        amp_deviation_measures, amp_decay_coefficients = relative_amplitude_deviations(note.partials) # (25,)
+        freq_deviation_measures = relative_freq_deviations(note.partials, median_beta)
 
-            betas_measures = np.array([
-                np.mean(betas_filtered, axis=0),
-                median_beta,
-                np.std(betas_filtered, axis=0),
-                np.var(betas_filtered, axis=0),
-                np.min(betas_filtered, axis=0),
-                np.max(betas_filtered, axis=0)]) # todo: skewness & curtuosis, mode
+        # valid_slopes = np.isfinite(amp_decay_coefficients)
+        valid_partials = np.isfinite(amp_decay_coefficients).astype(int) # make 0 and 1
 
-            amp_deviation_measures, amp_decay_coefficients = relative_amplitude_deviations(note.partials) # (25,)
+        # write into note.features
+        note.features.beta = median_beta
+        note.features.betas_measures = betas_measures
 
-            freq_deviation_measures = relative_freq_deviations(note.partials, median_beta)
+        note.features.valid_partials = valid_partials
+        note.features.rel_partial_amplitudes = amp_deviation_measures
+        note.features.rel_freq_deviations = freq_deviation_measures
+        note.features.amp_decay_coefficients = amp_decay_coefficients  # was on note, not note.features
+        note.features.fill_feature_vector()
 
-            # valid_slopes = np.isfinite(amp_decay_coefficients)
-            valid_partials = np.isfinite(amp_decay_coefficients).astype(int) # make 0 and 1
-
-            # write into note.features
-            note.features.beta = median_beta
-            note.features.betas_measures = betas_measures
-
-            note.features.valid_partials = valid_partials
-            note.features.rel_partial_amplitudes = amp_deviation_measures
-            note.features.rel_freq_deviations = freq_deviation_measures
-            note.features.amp_decay_coefficients = amp_decay_coefficients  # was on note, not note.features
-            note.features.fill_feature_vector()
+        if note.features is None:
+            note.invalidate(FilterReason.NO_FEATURES, step="calculate_features")
 
 
     track.save(filepath)
     print(f"Saved {filepath}")
-
     return f"Success! Feature Vector (raw) calculated for: {os.path.basename(filepath)}"
 
 

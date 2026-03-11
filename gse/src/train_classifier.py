@@ -23,11 +23,9 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import StratifiedKFold, cross_validate
 
-
-
 import calculate_features
 import find_partials
-from find_partials import filter_analysis
+from utils.Track_dataclass import filter_analysis
 
 
 def main():
@@ -38,20 +36,11 @@ def main():
     config_train = ConfigParser()
     config_train.read('config_train.ini')
 
-
-
     # --- Step 1: Find partials ---
-    all_notes = find_partials.main(config_train)
-    filter_analysis(all_notes, step="find_partials")
+    find_partials.main(config_train)
 
     # --- Step 2: Calculate features ---
-    all_notes = calculate_features.main(config_train)
-    filter_analysis(all_notes, step="calculate_features")
-
-    # --- Final cumulative picture ---
-    filter_analysis(all_notes, step=None)  # shows all steps together
-
-
+    calculate_features.main(config_train)
 
     track_directory = config_train.get('paths', 'track_directory')
 
@@ -64,6 +53,7 @@ def main():
 
     all_feature_vectors = []
     all_labels = []
+    all_notes = []
 
     for i, filepath in enumerate(filepaths, 1):
         print(f"\n[{i}/{len(filepaths)}] Processing {filepath}")
@@ -71,12 +61,15 @@ def main():
         with open(filepath, "rb") as f:
             track = pickle.load(f)
 
-        valid_notes = [note for note in track.notes if
-                       note.valid == True and note.origin == 'gt']
+        # append all notes with filter reasons
+        for note in track.notes:
+            all_notes.append(note)
 
-        for note in valid_notes:
+        for note in track.valid_notes:
             all_feature_vectors.append(note.features.feature_vector)
             all_labels.append(note.attributes.string_index)  # GT
+
+    filter_analysis(all_notes)
 
     # stack over all tracks
     FX = np.stack(all_feature_vectors)  # (total_notes, N)

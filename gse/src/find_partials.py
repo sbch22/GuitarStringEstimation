@@ -22,36 +22,9 @@ import pyfar as pf
 import librosa as lib
 
 from collections import defaultdict
-from utils.FeatureNote_dataclass import FilterReason
+from utils.FeatureNote_dataclass import FilterReason, Features
 
 
-def filter_analysis(notes: list, step: str = None) -> dict:
-    total = len(notes)
-    valid = [n for n in notes if n.valid]
-    invalid = [n for n in notes if not n.valid]
-
-    # Group by (step, reason)
-    breakdown = defaultdict(int)
-    for note in invalid:
-        s = getattr(note, 'filter_step', 'unknown_step')
-        r = getattr(note, 'filter_reason', FilterReason('unknown'))
-        key = (s, r.value if isinstance(r, FilterReason) else r)
-        breakdown[key] += 1
-
-    print(f"\n{'=' * 50}")
-    print(f"Filter Analysis{f' [{step}]' if step else ''}:")
-    print(f"  Total notes:   {total}")
-    print(f"  Valid:         {len(valid)}")
-    print(f"  Invalid:       {len(invalid)}")
-
-    if breakdown:
-        print(f"\n  Breakdown by step + reason:")
-        for (s, reason), count in sorted(breakdown.items(), key=lambda x: -x[1]):
-            pct = 100 * count / total
-            print(f"    [{s}] {reason}: {count} ({pct:.1f}%)")
-    print('=' * 50)
-
-    return dict(breakdown)
 
 
 
@@ -164,9 +137,14 @@ def partial_picker(inst_freq, inst_amp, f0, k_f0, beta_max, n_partials, sr, W, t
                     idx = partial_bins[t-1, p_idx] - b_lo  # passt ungefähr
 
             # Threshold prüfen
-            amp_db = 20 * np.log10(amp + 1e-12)
-            if amp_db <= threshold:
-                continue
+            if np.isnan(amp):
+                amp_db = np.nan
+            elif amp > 0:
+                amp_db = 20 * np.log10(amp)
+                if amp_db <= threshold:
+                    continue
+            else:
+                continue  # amp == 0, nothing to keep
 
             # Ausgeben
             partial_freqs[t, p_idx] = freq
@@ -305,6 +283,10 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot, thr
         window = scipy.signal.windows.hann(W, sym=False)
         harmonic_audio = harmonic_audio * window
 
+        # Or guard before assignment in process_track_extract_partials:
+        if note.features is None:
+            note.features = Features()
+
         """ Spectral Centroid """
         S = np.abs(np.fft.rfft(harmonic_audio, n=W, axis=1)).T  # shape: (2049, 24)
         sc = lib.feature.spectral_centroid(S=S, sr=sr, n_fft=W)
@@ -441,14 +423,9 @@ def process_single_file(filepath, W, H, beta_max, plot, threshold):
         print(f"Unexpected error loading {filepath}: {e}")
         return None
 
-    valid_notes = [note for note in track.notes if note.valid == True and note.origin == 'gt']
-    invalid_notes = [note for note in track.notes if note.valid == False and note.origin == 'gt']
-
     # Process track
     process_track_extract_partials(track, W, H, beta_max, n_partials=25, plot=plot, threshold = threshold)
     track.save(filepath)
-    return valid_notes, invalid_notes
-
 
 
 def process_file_wrapper(args):
@@ -482,11 +459,8 @@ def main(config):
     print(f"Processing {total} files using {num_workers} workers...")
 
     with Pool(processes=num_workers) as pool:
-        results = pool.map(process_file_wrapper, args_list)
-
-    print(f"Done. Results: {results}")
-    all_notes = [note for r in results if r for note in (r[0] + r[1])]
-    return all_notes
+        pool.map(process_file_wrapper, args_list)
+    print(f"\nDone.")
 
 if __name__ == "__main__":
     config = ConfigParser()

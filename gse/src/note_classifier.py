@@ -18,6 +18,7 @@ from sklearn.inspection import permutation_importance
 # import functions
 import calculate_features
 import find_partials
+from utils.Track_dataclass import filter_analysis
 
 
 def get_fret(midi_pitch, string_index):
@@ -262,7 +263,6 @@ def main():
         if os.path.isfile(os.path.join(track_directory, filename))
     ]
 
-
     all_predictions = []
     all_features = []
     all_labels = []
@@ -274,24 +274,22 @@ def main():
         with open(filepath, "rb") as f:
             track = pickle.load(f)
 
-        valid_notes = [note for note in track.notes if
-                       note.valid == True and note.origin == 'gt']
 
         notes_by_track = defaultdict(list)
         track_feature_vectors = []
         track_labels = []
 
+        for note in track.notes:
+            all_notes.append(note)
 
-        for note in valid_notes:
+        for note in track.valid_notes:
             track_feature_vectors.append(note.features.feature_vector)
             track_labels.append(note.attributes.string_index)  # GT
             notes_by_track[os.path.basename(filepath)].append(note)
 
-
             fv = note.features.feature_vector
             all_features.append(fv)
             all_labels.append(note.attributes.string_index)
-            all_notes.append(note)
 
         # stack over all tracks
         FX_track_test = np.stack(track_feature_vectors)  # (total_notes, N)
@@ -299,12 +297,13 @@ def main():
 
         probs = SVM.predict_proba(FX_track_test)
         # assign probs to notes
-        for i, note in enumerate(valid_notes):
-            note_probs = probs[i, :]
+        for i, note in enumerate(track.valid_notes):
             note.string_probs = probs[i,:]
 
-        track_predictions = plausibility_filter(probs, valid_notes, centroid_tracker)
+        track_predictions = plausibility_filter(probs, track.valid_notes, centroid_tracker)
         all_predictions.append(track_predictions)
+
+    filter_analysis(all_notes)
 
     X_test = np.stack(all_features)
     y_test = np.array(all_labels)
