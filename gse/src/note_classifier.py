@@ -241,13 +241,13 @@ def main():
     config_train = ConfigParser()
     config_train.read('config_train.ini')
 
-    # find_partials.main(
-    #     config_test
-    # )
-    #
-    # calculate_features.main(
-    #     config_test
-    # )
+    find_partials.main(
+        config_test
+    )
+
+    calculate_features.main(
+        config_test
+    )
 
     centroid_tracker = FretboardCentroid()
 
@@ -322,9 +322,7 @@ def main():
     )
 
     importance = result.importances_mean
-
     ranking = np.argsort(importance)[::-1]
-
     for i in ranking:
         print(f"Feature {i}: {importance[i]:.5f}")
 

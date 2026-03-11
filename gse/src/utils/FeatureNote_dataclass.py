@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 import numpy as np
 import math
+from enum import Enum
+
 
 @dataclass
 class Features:
@@ -56,6 +58,21 @@ class Partials:
     amplitudes: np.ndarray[float]
 
 
+
+class FilterReason(Enum):
+    # preprocessing
+    FRETTING_INVALID = "what_fret found invalid fret"
+    MISMATCH_BETWEEN_STRINGS = "note assignment likely wring between strings due to bleed"
+    NO_MATCH = "no matching note could be found between model output and ground truth"
+    # find_partials.py
+    NO_HARMONIC_AUDIO = "no harmonic audio"
+    HARMONIC_AUDIO_TOO_SHORT = "harmonic audio too short"
+    NO_PARTIALS_FOUND = "no partials found"
+
+    # calculate_features.py
+    FEATURE_EXTRACTION_FAILED = "feature extraction failed"
+
+
 @dataclass
 class FeatureNote:
     origin: Optional[str] = None # GT, model or match
@@ -66,6 +83,13 @@ class FeatureNote:
     features: Optional[Features] = None
     partials: Optional[Partials] = None
     string_probs: Optional[np.ndarray] = None
+
+    # In your Note dataclass
+    def invalidate(self, reason: FilterReason, step: str):
+        """Sets note as invalid with a reason and the pipeline step that caused it."""
+        self.valid = False
+        self.filter_reason = reason
+        self.filter_step = step  # e.g. "find_partials", "calculate_features"
 
     def delete_from(self, notes: list):
         """
@@ -99,8 +123,7 @@ class FeatureNote:
         if not (0 <= fret <= 24):
             # print("Unplayable:", self.attributes.pitch, "string", self.attributes.string_index)
             self.attributes.fret = None
-            self.valid = False
-            self.filter_reason = 'fretting invalid'
+            self.invalidate(FilterReason.FRETTING_INVALID, step="self.what_fret")
             return
 
         self.attributes.fret = fret

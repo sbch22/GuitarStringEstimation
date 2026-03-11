@@ -21,45 +21,41 @@ from multiprocessing import Pool, cpu_count
 import pyfar as pf
 import librosa as lib
 
-def filter_analysis(notes):
-    """
-    Checks notes.filter_reason and counts occurrences.
+from collections import defaultdict
+from utils.FeatureNote_dataclass import FilterReason
 
-    Args:
-        notes: List of FeatureNote objects
 
-    Returns:
-        Dict with filter reason and number of notes filtered.
-    """
-    errors = {}
-    for note in notes:
-        if not note.valid and hasattr(note, 'filter_reason'):
-            reason = note.filter_reason
-            errors[reason] = errors.get(reason, 0) + 1
+def filter_analysis(notes: list, step: str = None) -> dict:
+    total = len(notes)
+    valid = [n for n in notes if n.valid]
+    invalid = [n for n in notes if not n.valid]
 
-    # Print results
-    print("\nFilter Analysis:")
-    for reason, count in sorted(errors.items(), key=lambda x: x[1], reverse=True):
-        print(f"  {reason}: {count} notes")
-    print(f"Total filtered: {sum(errors.values())}")
-    print(f"Total valid: {sum(1 for n in notes if n.valid)}\n")
+    # Group by (step, reason)
+    breakdown = defaultdict(int)
+    for note in invalid:
+        s = getattr(note, 'filter_step', 'unknown_step')
+        r = getattr(note, 'filter_reason', FilterReason('unknown'))
+        key = (s, r.value if isinstance(r, FilterReason) else r)
+        breakdown[key] += 1
 
-    return errors
+    print(f"\n{'=' * 50}")
+    print(f"Filter Analysis{f' [{step}]' if step else ''}:")
+    print(f"  Total notes:   {total}")
+    print(f"  Valid:         {len(valid)}")
+    print(f"  Invalid:       {len(invalid)}")
+
+    if breakdown:
+        print(f"\n  Breakdown by step + reason:")
+        for (s, reason), count in sorted(breakdown.items(), key=lambda x: -x[1]):
+            pct = 100 * count / total
+            print(f"    [{s}] {reason}: {count} ({pct:.1f}%)")
+    print('=' * 50)
+
+    return dict(breakdown)
+
+
 
 def instantaneous_frequency(frames, W, H, sr, window):
-    """
-    Calculates the instantaneous frequency of all passed frames for all possible bins.
-
-    Args:
-        frames: np.ndarray collecting all frames of raw audio data
-        W: STFT-Window size
-        H: Hop sizze
-        sr: sampling_rate
-        window: Hann or other type window with width W, for normalization
-
-    Returns:
-
-    """
     # FFT
     fft_frames = np.fft.rfft(frames, axis=1)  # (n_frames, n_bins)
     phase = np.angle(fft_frames)
@@ -272,7 +268,6 @@ def extract_harmonic_note_audio(note_audio, W, H, sr, plot):
     return harmonic_audio_win, intra_onsets
 
 
-
 def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot, threshold):
     filepath = track.audio_paths["hex_debleeded"]
     string_hex_audio = pf.io.read_audio(filepath)
@@ -294,7 +289,7 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot, thr
         # extract harmonic part of note audi -> cut out other onsets & time window the rest
         # harmonic_audio, intra_onsets = extract_harmonic_note_audio(note_audio, W, H, sr, plot)
         if harmonic_audio is None:
-            note.filter_reason = 'no harmonic audio'
+            note.invalidate(FilterReason.NO_HARMONIC_AUDIO, step="find_partials")
             continue
 
         # Pad the audio so last window is included
@@ -303,7 +298,7 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot, thr
         # buffer signal
         harmonic_audio = np.lib.stride_tricks.sliding_window_view(harmonic_audio, window_shape=W)[::H]
         if harmonic_audio.ndim < 2:
-            note.filter_reason = 'harmonic audio too short'
+            note.invalidate(FilterReason.HARMONIC_AUDIO_TOO_SHORT, step="find_partials")
             continue
 
         # Apply Hann-Window on each frame
@@ -427,7 +422,7 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot, thr
 
         # Errors in Filtering
         if note.partials == None:
-            note.filter_reason = 'no partials found'
+            note.invalidate(FilterReason.NO_PARTIALS_FOUND, step="find_partials")
 
 
 def process_single_file(filepath, W, H, beta_max, plot, threshold):
@@ -446,17 +441,13 @@ def process_single_file(filepath, W, H, beta_max, plot, threshold):
         print(f"Unexpected error loading {filepath}: {e}")
         return None
 
-    num_valid_notes_gt = len([note for note in track.notes if note.valid == True and note.origin == 'gt'])
-    num_invalid_notes_gt = len([note for note in track.notes if note.valid == False and note.origin == 'gt'])
+    valid_notes = [note for note in track.notes if note.valid == True and note.origin == 'gt']
+    invalid_notes = [note for note in track.notes if note.valid == False and note.origin == 'gt']
 
     # Process track
     process_track_extract_partials(track, W, H, beta_max, n_partials=25, plot=plot, threshold = threshold)
-
-    filter_analysis(track.notes)
     track.save(filepath)
-
-    return num_valid_notes_gt, num_invalid_notes_gt
-
+    return valid_notes, invalid_notes
 
 
 
@@ -494,12 +485,8 @@ def main(config):
         results = pool.map(process_file_wrapper, args_list)
 
     print(f"Done. Results: {results}")
-    total_valid_notes = sum(r[0] for r in results)
-    total_invalid_notes = sum(r[1] for r in results)
-
-    print(f"Total valid notes: {total_valid_notes}")
-    print(f"Total invalid notes: {total_invalid_notes}")
-
+    all_notes = [note for r in results if r for note in (r[0] + r[1])]
+    return all_notes
 
 if __name__ == "__main__":
     config = ConfigParser()

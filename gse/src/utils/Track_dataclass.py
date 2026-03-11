@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from typing import List, Optional
-from gse.src.utils.FeatureNote_dataclass import FeatureNote
+from gse.src.utils.FeatureNote_dataclass import FeatureNote, FilterReason
 import pickle
 import warnings
 import pyfar as pf
@@ -15,8 +15,9 @@ DRUM_PROGRAM = 128
 class Track:
     name: str
     audio_paths: Optional[dict] = None
-    notes: List["FeatureNote"] = field(default_factory=list)
-    valid_notes: List["FeatureNote"] = field(default_factory=list)
+    notes: List["FeatureNote"] = field(default_factory=list)  # all notes, both origins — untouched archive
+    valid_notes: List["FeatureNote"] = field(default_factory=list)  # model notes surviving all pipeline steps
+    gt_notes: List["FeatureNote"] = field(default_factory=list)  # frozen GT f
     metadata: dict = field(default_factory=dict)
 
     def save(self, path: str):
@@ -130,61 +131,48 @@ class Track:
         return trimmed_notes
 
     @staticmethod
-    def match_notes(delta: float, all_notes: List['FeatureNote']):
+    def match_notes(track: 'Track', delta: float):
         """
-        Compares notes between model output and ground truth.
-        Args:
-            delta: Time difference in seconds between model output and ground truth.
-            all_notes: List of all FeatureNote Objects
+        Populates track.valid_notes (matched model notes)
+        and track.gt_notes (frozen GT for evaluation).
+        """
+        gt_notes = [n for n in track.notes if n.origin == "gt"]
+        pred_notes = [n for n in track.notes if n.origin == "model"]
 
-        Results:
-            Toggle match und valid boolean attributes True if notes are valid in either origin.
-        """
-        # Separate GT and predicted notes
-        gt_notes = [n for n in all_notes if n.origin == "gt"]
-        pred_notes = [n for n in all_notes if n.origin == "model"]
+        # Freeze GT immediately — never modified after this
+        track.gt_notes = gt_notes
+
+        unmatched_preds = list(pred_notes)
+        matched_model_notes = []
 
         for pred in pred_notes:
-            matched = False
-            for gt in gt_notes:
+            matched_gt = None
+            for gt in unmatched_preds if False else gt_notes:  # GT can match multiple preds? decide here
                 if (gt.attributes.midi_note == pred.attributes.midi_note and
                         gt.attributes.program == pred.attributes.program):
-                    time_diff = abs(pred.attributes.onset - gt.attributes.onset)
-                    if time_diff <= delta:
-                        gt.valid = True
-                        gt.match = True
-                        gt.attributes.string_index = pred.attributes.string_index
-                        pred.valid = True
-                        pred.match = True
-                        matched = True
+                    if abs(pred.attributes.onset - gt.attributes.onset) <= delta:
+                        matched_gt = gt
                         break
 
-            if not matched:
-                pred.valid = False
-                pred.filter_reason = 'No match with GT'
+            if matched_gt:
+                pred.valid = True
+                pred.match = True
+                pred.attributes.string_index = matched_gt.attributes.string_index
+                matched_model_notes.append(pred)
+            else:
+                pred.invalidate(FilterReason.NO_MATCH, step="match_notes")
 
-        # Dann für GT-Notes
-        for gt in gt_notes:
-            if not gt.match:
-                gt.valid = False
-                gt.filter_reason = 'No match with Model output'
-
+        track.valid_notes = matched_model_notes
 
     @staticmethod
-    def match_notes_between_strings(track_audio, delta: float, all_notes: List['FeatureNote']):
-        """
-        Looks through valid notes  and finds mismatch between strings. Decision is made by comparing RMS between strings
-
-        Results:
-            Toggle valid boolean attributes False if notes are a mismatch
-        """
-        # Separate GT and predicted notes and only check notes that are valid for now
-        pred_notes = [n for n in all_notes if n.valid]
+    def match_notes_between_strings(track_audio, delta: float, notes: List['FeatureNote']):
+        """Resolve string assignment conflicts among valid GT notes by RMS comparison."""
+        valid_notes = [n for n in notes if n.valid]
 
         notes_to_remove = []
 
-        for i, pred in enumerate(pred_notes):
-            for pred2 in pred_notes[i + 1:]:
+        for i, pred in enumerate(valid_notes):
+            for pred2 in valid_notes[i + 1:]:
                 # same string -> skip
                 if pred.attributes.string_index == pred2.attributes.string_index:
                     continue
@@ -225,18 +213,17 @@ class Track:
         # remove match-toggle from matched note
         for note in notes_to_remove:
             n_false_notes = n_false_notes + 1
-            note.filter_reason = 'string duplicate'
-            note.valid = False
+            note.invalidate(FilterReason.MISMATCH_BETWEEN_STRINGS, step="match_notes_between_strings")
 
-    def save_valid_notes_list(self):
-        """
-        Saves valid notes into different List for easier analysis.
-
-        Origin: Str ... bsp. 'model', 'gt'
-        """
-        self.valid_notes = [note for note in self.notes if note.valid and note.origin == 'gt']
-
-    def cumulate_all_valid_notes(self, origin):
-        valid_notes = [n for n in self.notes if n.valid and n.origin == origin]
-        return valid_notes
-
+    # def save_valid_notes_list(self):
+    #     """
+    #     Saves valid notes into different List for easier analysis.
+    #
+    #     Origin: Str ... bsp. 'model', 'gt'
+    #     """
+    #     self.valid_notes = [note for note in self.notes if note.valid and note.origin == 'gt']
+    #
+    # def cumulate_all_valid_notes(self, origin):
+    #     valid_notes = [n for n in self.notes if n.valid and n.origin == origin]
+    #     return valid_notes
+    #
