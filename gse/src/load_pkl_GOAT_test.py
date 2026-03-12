@@ -1,7 +1,7 @@
 import pickle
 
 # path to your saved track
-track_path = "../noteData/GOAT/item_0.pkl"
+track_path = "../noteData/GOAT/item_2.pkl"
 # load it back
 with open(track_path, "rb") as f:
     track = pickle.load(f)
@@ -16,8 +16,4 @@ first_note = track.notes[0]
 
 notes = track.notes
 
-# check if audio loaded
-if track.audio.mono_mic:
-    print("Mono mic signal shape:", track.audio.mono_mic.time.shape)
-else:
-    print("Mono mic audio not loaded")
+print(f"first note: {first_note}")

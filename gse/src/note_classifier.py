@@ -232,15 +232,15 @@ def evaluate_classification(y_true, y_pred, string_labels=None):
         'string_labels':    string_labels,   # [0,1,2,3,4,5]
         'string_names':     [STRING_NAMES[l] for l in string_labels],  # ['E2',...]
     }
-def get_stat_groups(groups, measure_segments_with_k, stat_names=["median","mean","min","max","std","var"]):
+
+def get_stat_groups(groups, measure_segments_with_k, stat_names=["median","mean","min","max","std","var", "skewness", "kurtosis", "mode"]):
     """
-    For measure arrays (shape 6 x K), extract indices for each stat across all measure segments.
+    For measure arrays (shape 9 x K), extract indices for each stat across all measure segments.
     measure_segments_with_k: dict of {seg_name: n_partials}, e.g.:
         {
             "rel_partial_amplitudes": 25,
             "rel_freq_deviations":    24,
         }
-    Note: amp_decay_coefficients is flat (25,) — not a (6, K) array, exclude it here.
     """
     stat_groups = {name: [] for name in stat_names}
 
@@ -292,9 +292,9 @@ def get_partial_groups(groups, sample_fv):
     Group feature indices by partial index k, across all segments with a partial axis.
 
     Segments included:
-        rel_partial_amplitudes  (6, 25): stat × partial
+        rel_partial_amplitudes  (9, 25): stat × partial
         amp_decay_coefficients  (25,):   flat, one per partial
-        rel_freq_deviations     (6, 24): stat × partial  — only 24 partials!
+        rel_freq_deviations     (9, 24): stat × partial  — only 24 partials!
 
     Returns dict: {k: [feature_idx, ...]} for k in 0..max_partial
     """
