@@ -65,7 +65,7 @@ class Track:
     audio_paths: Optional[dict] = None
     dataset: Optional[str] = None
     notes: List["FeatureNote"] = field(default_factory=list)  # all notes, both origins — untouched archive
-    valid_notes: List["FeatureNote"] = field(default_factory=list)  # model notes surviving all pipeline steps
+    # valid_notes: List["FeatureNote"] = field(default_factory=list)  # model notes surviving all pipeline steps
     gt_notes: List["FeatureNote"] = field(default_factory=list)  # frozen GT f
     metadata: dict = field(default_factory=dict)
 
@@ -177,6 +177,7 @@ class Track:
             if matched_gt:
                 pred.valid = True
                 pred.match = True
+                pred.dataset = matched_gt.dataset
                 matched_gt.attributes.string_index = pred.attributes.string_index
                 matched_gt.match = True
             else:

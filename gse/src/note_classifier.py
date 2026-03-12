@@ -150,7 +150,7 @@ def plausibility_filter(probabilities, notes, centroid_tracker, config=FILTER_CO
             for string in occupied:
                 masked_prob[string] *= 0.05  # weich bestrafen statt hart auf 0
 
-        # Renormalisieren nach jedem Note
+        # Renormalisieren nach jeder Note
         total = masked_prob.sum()
         if total > 0:
             masked_prob /= total
@@ -232,6 +232,121 @@ def evaluate_classification(y_true, y_pred, string_labels=None):
         'string_labels':    string_labels,   # [0,1,2,3,4,5]
         'string_names':     [STRING_NAMES[l] for l in string_labels],  # ['E2',...]
     }
+def get_stat_groups(groups, measure_segments_with_k, stat_names=["median","mean","min","max","std","var"]):
+    """
+    For measure arrays (shape 6 x K), extract indices for each stat across all measure segments.
+    measure_segments_with_k: dict of {seg_name: n_partials}, e.g.:
+        {
+            "rel_partial_amplitudes": 25,
+            "rel_freq_deviations":    24,
+        }
+    Note: amp_decay_coefficients is flat (25,) — not a (6, K) array, exclude it here.
+    """
+    stat_groups = {name: [] for name in stat_names}
+
+    for seg_name, k in measure_segments_with_k.items():
+        seg_indices = groups[seg_name]
+        stat_index_blocks = np.array(seg_indices).reshape(len(stat_names), k)
+        for i, stat_name in enumerate(stat_names):
+            stat_groups[stat_name].extend(stat_index_blocks[i].tolist())
+
+    return stat_groups
+
+
+def get_feature_groups(sample_fv):
+    """
+    Build index groups by reconstructing segment boundaries from a sample Features object.
+
+    Segment sizes based on actual dimensions:
+        f0:                     1           (scalar)
+        betas_measures:         9           (1D: one stat per beta coefficient)
+        valid_partials:         25          (1D: valid flag per partial)
+        spectral_centroid:      9           (1D: one stat per frame)
+        rel_partial_amplitudes: 9 x 25 = 225  (9 stats × 25 partials)
+        amp_decay_coefficients: 25          (1D: one decay coeff per partial)
+        rel_freq_deviations:    9 x 24 = 216  (9 stats × 24 partials)
+
+        510 Features overall
+    """
+    segments = {
+        "f0":                     1,
+        "betas_measures":         sample_fv.betas_measures.size,        # 9
+        "valid_partials":         sample_fv.valid_partials.size,         # 25
+        "spectral_centroid":      sample_fv.spectral_centroid.size,      # 9
+        "rel_partial_amplitudes": sample_fv.rel_partial_amplitudes.size, # 225
+        "amp_decay_coefficients": sample_fv.amp_decay_coefficients.size, # 25
+        "rel_freq_deviations":    sample_fv.rel_freq_deviations.size,    # 216
+    }
+
+    groups = {}
+    offset = 0
+    for name, size in segments.items():
+        groups[name] = list(range(offset, offset + size))
+        offset += size
+
+    return groups
+
+
+def get_partial_groups(groups, sample_fv):
+    """
+    Group feature indices by partial index k, across all segments with a partial axis.
+
+    Segments included:
+        rel_partial_amplitudes  (6, 25): stat × partial
+        amp_decay_coefficients  (25,):   flat, one per partial
+        rel_freq_deviations     (6, 24): stat × partial  — only 24 partials!
+
+    Returns dict: {k: [feature_idx, ...]} for k in 0..max_partial
+    """
+    n_stats = 9
+
+    amp_indices = np.array(groups["rel_partial_amplitudes"]).reshape(n_stats, sample_fv.rel_partial_amplitudes.shape[
+        1])  # (9, 25)
+    decay_indices = np.array(groups["amp_decay_coefficients"])  # (25,)
+    freq_indices = np.array(groups["rel_freq_deviations"]).reshape(n_stats,
+                                                                   sample_fv.rel_freq_deviations.shape[1])  # (9, 24)
+
+    n_partials_max = decay_indices.shape[0]  # 25
+
+    partial_groups = {}
+    for k in range(n_partials_max):
+        idx = []
+        idx.extend(amp_indices[:, k].tolist())  # 9 indices from rel_partial_amplitudes
+        idx.append(decay_indices[k].item())  # 1 index  from amp_decay_coefficients
+        if k < freq_indices.shape[1]:  # rel_freq_deviations only has 24
+            idx.extend(freq_indices[:, k].tolist())  # 9 indices from rel_freq_deviations
+        partial_groups[k] = idx
+
+    return partial_groups
+
+
+def grouped_permutation_importance(model, X, y, groups, n_repeats=5, scoring="accuracy", random_state=42):
+    """
+    groups: dict of {group_name: [col_idx, col_idx, ...]}
+    Returns dict of {group_name: {"mean": float, "std": float}}
+    """
+    rng = np.random.RandomState(random_state)
+    # Baseline score
+    baseline = accuracy_score(y, model.predict(X))
+
+    results = {}
+    for group_name, col_indices in groups.items():
+        scores = []
+        for _ in range(n_repeats):
+            X_permuted = X.copy()
+            # Permute all columns in this group with the SAME shuffle order
+            shuffle_idx = rng.permutation(len(y))
+            X_permuted[:, col_indices] = X_permuted[shuffle_idx][:, col_indices]
+            score = accuracy_score(y, model.predict(X_permuted))
+            scores.append(baseline - score)  # importance = drop in accuracy
+
+        results[group_name] = {
+            "mean": np.mean(scores),
+            "std":  np.std(scores),
+        }
+
+    return results
+
 
 
 def main():
@@ -250,8 +365,6 @@ def main():
         config_test
     )
 
-    centroid_tracker = FretboardCentroid()
-
     track_directory = config_test.get('paths', 'track_directory')
 
     SVM = joblib.load("svm_pipeline.joblib")
@@ -267,6 +380,7 @@ def main():
     all_features = []
     all_labels = []
     all_notes = []
+    all_valid_notes = []
 
     for i, filepath in enumerate(filepaths, 1):
         print(f"\n[{i}/{len(filepaths)}] Processing {filepath}")
@@ -274,6 +388,8 @@ def main():
         with open(filepath, "rb") as f:
             track = pickle.load(f)
 
+        # reset centroid tracker per track
+        centroid_tracker = FretboardCentroid()
 
         notes_by_track = defaultdict(list)
         track_feature_vectors = []
@@ -290,44 +406,68 @@ def main():
             fv = note.features.feature_vector
             all_features.append(fv)
             all_labels.append(note.attributes.string_index)
+            all_valid_notes.append(note)
 
-        # stack over all tracks
-        FX_track_test = np.stack(track_feature_vectors)  # (total_notes, N)
-        labels_track_test_gt = np.array(track_labels) # (total_notes,)
+        if not track_feature_vectors:
+            print(f"  Skipping — no valid notes found. Probably no model output.")
+            continue
 
-        probs = SVM.predict_proba(FX_track_test)
-        # assign probs to notes
-        for i, note in enumerate(track.valid_notes):
-            note.string_probs = probs[i,:]
+        """ track logic"""
+        track_probs = SVM.predict_proba(np.stack(track_feature_vectors))
+        track_predictions = plausibility_filter(track_probs, track.valid_notes, centroid_tracker)
+        all_predictions.extend(track_predictions)
 
-        track_predictions = plausibility_filter(probs, track.valid_notes, centroid_tracker)
-        all_predictions.append(track_predictions)
 
+
+    """ Filter analysis testSet"""
     filter_analysis(all_notes)
 
-    X_test = np.stack(all_features)
-    y_test = np.array(all_labels)
 
-    string_labels = [0, 1, 2, 3, 4, 5]
 
     """ Permutation """
-    result = permutation_importance(
-        SVM,
-        X_test,
-        y_test,
-        n_repeats=10,
-        scoring="accuracy",
-        n_jobs=-1,
+    FX_test = np.stack(all_features)
+    labels_test = np.array(all_labels)
+    string_labels = [0, 1, 2, 3, 4, 5]
+
+    sample_fv = all_valid_notes[0].features
+    feature_groups = get_feature_groups(sample_fv)
+
+    # Per-segment K values for the (6, K) measure arrays only
+    measure_segs_with_k = {
+        "rel_partial_amplitudes": sample_fv.rel_partial_amplitudes.shape[1],  # 25
+        "rel_freq_deviations": sample_fv.rel_freq_deviations.shape[1],  # 24
+    }
+    stat_groups = get_stat_groups(feature_groups, measure_segs_with_k)
+
+    # Run both
+    segment_importance = grouped_permutation_importance(SVM, FX_test, labels_test, feature_groups, n_repeats=10)
+    stat_importance = grouped_permutation_importance(SVM, FX_test, labels_test, stat_groups, n_repeats=10)
+
+    for name, res in sorted(segment_importance.items(), key=lambda x: -x[1]["mean"]):
+        print(f"{name:30s}  importance: {res['mean']:.4f} ± {res['std']:.4f}")
+
+    for name, res in sorted(stat_importance.items(), key=lambda x: -x[1]["mean"]):
+        print(f"{name:30s}  importance: {res['mean']:.4f} ± {res['std']:.4f}")
+
+
+    partial_groups = get_partial_groups(feature_groups, sample_fv)
+    # Optional: nur erste N Partialtöne analysieren
+    N = 25
+    partial_groups_top = {k: v for k, v in partial_groups.items() if k < N}
+
+    partial_importance = grouped_permutation_importance(
+        SVM, FX_test, labels_test, partial_groups_top, n_repeats=10
     )
 
-    importance = result.importances_mean
-    ranking = np.argsort(importance)[::-1]
-    for i in ranking:
-        print(f"Feature {i}: {importance[i]:.5f}")
+    print("\nImportance by partial index:")
+    for k, res in sorted(partial_importance.items(), key=lambda x: -x[1]["mean"]):
+        n_features = len(partial_groups[k])
+        print(f"  Partial {k:2d}  ({n_features} features):  {res['mean']:.4f} ± {res['std']:.4f}")
 
 
-    predictions = np.concatenate(all_predictions, axis=0)  # shape: (total_notes, n_classes)
-    results = evaluate_classification(all_labels, np.argmax(predictions, axis=1), string_labels=string_labels)
+
+    """ Overall (tracks) """
+    results = evaluate_classification(all_labels, np.argmax(all_predictions, axis=1), string_labels=string_labels)
 
     print(results['overall'])  # Overall accuracy, F1, etc.
     print(results['per_string'])  # Per-string breakdown

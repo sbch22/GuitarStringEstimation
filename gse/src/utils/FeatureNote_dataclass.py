@@ -20,8 +20,10 @@ class Features:
 
     def fill_feature_vector(self) -> None:
         segments = {
+            "f0":                     self.f0,
             "betas_measures":         self.betas_measures,
             "valid_partials":         self.valid_partials,
+            "spectral_centroid":      self.spectral_centroid,
             "rel_partial_amplitudes": self.rel_partial_amplitudes,
             "amp_decay_coefficients": self.amp_decay_coefficients,
             "rel_freq_deviations":    self.rel_freq_deviations,

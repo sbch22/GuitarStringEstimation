@@ -44,11 +44,13 @@ def create_track_from_jam(jam_file: str, track_id: str) -> Track:
                     pitch=noteFREQ,  # convert to frequency
                 )
 
-                notes.append(FeatureNote(attributes=attr,
-                                         features=Features(),
-                                         origin='gt',
-                                         valid=True,
-                                         ))
+                notes.append(FeatureNote(
+                    attributes=attr,
+                    features=Features(),
+                    origin='gt',
+                    valid=True,
+                    dataset="GuitarSet",
+                ))
 
     track = Track(
         name=track_id,
@@ -144,7 +146,7 @@ def preprocess_dataset(data_dir, save_dir):
 
 # Main
 def main():
-    data_dir = '../../data/GuitarSet/guitarset_yourmt3_16k'
+    data_dir = '../../data/GuitarSet/GuitarSet_raw'
     save_dir = '../noteData/'
     preprocess_dataset(data_dir, save_dir)
 

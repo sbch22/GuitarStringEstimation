@@ -19,13 +19,41 @@ import sounddevice as sd
 from configparser import ConfigParser
 from multiprocessing import Pool, cpu_count
 import pyfar as pf
-import librosa as lib
 
 from collections import defaultdict
 from utils.FeatureNote_dataclass import FilterReason, Features
 
 
 
+def note_audio_preprocess(audio, W, H):
+    """
+    Prerocesses Audio:
+    - Pad Audio
+    - Buffering
+    - Windowing
+    Args:
+        audio: note audio
+        W: W
+        H: H
+
+    Returns:
+        audio_preprocessed: preprocessed note audio`
+
+    """
+    # extract harmonic part of note audi -> cut out other onsets & time window the rest
+    # harmonic_audio, intra_onsets = extract_harmonic_note_audio(audio, W, H, sr, plot)
+
+    # Pad the audio so last window is included
+    audio_buffered = np.pad(audio, (0, W), mode="constant")
+
+    # buffer signal
+    audio_buffered = np.lib.stride_tricks.sliding_window_view(audio_buffered, window_shape=W)[::H]
+
+    # Apply Hann-Window on each frame
+    window = scipy.signal.windows.hann(W, sym=False)
+    audio_preprocessed = audio_buffered * window
+
+    return audio_preprocessed, window
 
 
 def instantaneous_frequency(frames, W, H, sr, window):
@@ -246,13 +274,13 @@ def extract_harmonic_note_audio(note_audio, W, H, sr, plot):
     return harmonic_audio_win, intra_onsets
 
 
-def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot, threshold):
-    filepath = track.audio_paths["hex_debleeded"]
-    string_hex_audio = pf.io.read_audio(filepath)
-    sr = string_hex_audio.sampling_rate
+def process_track_extract_partials(track, W, H, beta_max, audio_type, n_partials, plot, threshold):
+    filepath = track.audio_paths[str(audio_type)]
+    audio = pf.io.read_audio(filepath)
+    sr = audio.sampling_rate
 
     # 6 x n_samples Matrix
-    strings_audio_matrix = string_hex_audio.time
+    audio_data = audio.time
 
     for note in track.valid_notes:
         # extract note audio from
@@ -261,72 +289,24 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot, thr
 
         k_f0 = int(note.attributes.pitch * W / sr)
 
-        note_audio = strings_audio_matrix[note.attributes.string_index, onset_sample:offset_sample]
-        harmonic_audio = note_audio
+        note_audio = audio_data[onset_sample:offset_sample]
 
-        # extract harmonic part of note audi -> cut out other onsets & time window the rest
-        # harmonic_audio, intra_onsets = extract_harmonic_note_audio(note_audio, W, H, sr, plot)
-        if harmonic_audio is None:
+        if note_audio is None:
             note.invalidate(FilterReason.NO_HARMONIC_AUDIO, step="find_partials")
             continue
 
-        # Pad the audio so last window is included
-        harmonic_audio = np.pad(harmonic_audio, (0, W), mode="constant")
+        preprocessed_audio, window = note_audio_preprocess(note_audio, W, H)
 
-        # buffer signal
-        harmonic_audio = np.lib.stride_tricks.sliding_window_view(harmonic_audio, window_shape=W)[::H]
-        if harmonic_audio.ndim < 2:
+        if preprocessed_audio.ndim < 2:
             note.invalidate(FilterReason.HARMONIC_AUDIO_TOO_SHORT, step="find_partials")
             continue
-
-        # Apply Hann-Window on each frame
-        window = scipy.signal.windows.hann(W, sym=False)
-        harmonic_audio = harmonic_audio * window
 
         # Or guard before assignment in process_track_extract_partials:
         if note.features is None:
             note.features = Features()
 
-        """ Spectral Centroid """
-        S = np.abs(np.fft.rfft(harmonic_audio, n=W, axis=1)).T  # shape: (2049, 24)
-        sc = lib.feature.spectral_centroid(S=S, sr=sr, n_fft=W)
-
-        median = np.nanmedian(
-            sc, axis=1
-        )
-        mean = np.nanmean(
-            sc,
-            axis=1
-        )
-        min = np.nanmin(
-            sc,
-            axis=1
-        )
-        max = np.nanmax(
-            sc,
-            axis=1
-        )
-        std = np.nanstd(
-            sc,
-            axis=1
-        )  # (K-1,)
-        var = np.nanvar(
-            sc,
-            axis=1
-        )  # (K-1,)
-
-        sc_measures = np.array([
-            median,
-            mean,
-            min,
-            max,
-            std,
-            var,
-        ])
-        note.features.spectral_centroid = sc_measures
-
         # calculate accurate freq & amplitude for all possible bins
-        inst_freq, inst_amp = instantaneous_frequency(harmonic_audio, W, H, sr, window)
+        inst_freq, inst_amp = instantaneous_frequency(preprocessed_audio, W, H, sr, window)
 
         # pick best partials
         partial_freqs, partial_amps, partial_bins = partial_picker(
@@ -347,7 +327,7 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot, thr
 
         if plot:
             # --- Spectrogram with partials overlay ---
-            fft_mag = np.abs(np.fft.rfft(harmonic_audio, axis=1))
+            fft_mag = np.abs(np.fft.rfft(preprocessed_audio, axis=1))
             fft_mag_db = 20 * np.log10(fft_mag + 1e-12)
 
             # Drop first FFT frame to match inst_freq length
@@ -407,7 +387,7 @@ def process_track_extract_partials(track, W, H, beta_max,  n_partials, plot, thr
             note.invalidate(FilterReason.NO_PARTIALS_FOUND, step="find_partials")
 
 
-def process_single_file(filepath, W, H, beta_max, plot, threshold):
+def process_single_file(filepath, W, H, beta_max, plot, threshold, audio_type):
     """Worker function to process a single file"""
     # load track
     try:
@@ -424,14 +404,14 @@ def process_single_file(filepath, W, H, beta_max, plot, threshold):
         return None
 
     # Process track
-    process_track_extract_partials(track, W, H, beta_max, n_partials=25, plot=plot, threshold = threshold)
+    process_track_extract_partials(track, W, H, beta_max, audio_type, n_partials=25, plot=plot, threshold = threshold)
     track.save(filepath)
 
 
 def process_file_wrapper(args):
-    filepath, idx, total, W, H, beta_max, plot, threshold = args
+    filepath, idx, total, W, H, beta_max, plot, threshold, audio_type = args
     print(f"\n[{idx}/{total}] Processing {filepath}")
-    return process_single_file(filepath, W, H, beta_max, plot, threshold)
+    return process_single_file(filepath, W, H, beta_max, plot, threshold, audio_type)
 
 
 def main(config):
@@ -441,6 +421,7 @@ def main(config):
     beta_max = config.getfloat('params', 'beta_max')
     threshold = config.getint('params', 'threshold')
     plot = config.getboolean('params', 'plot')
+    audio_type = config.get('paths', 'audio_type')
 
     # Collect all file paths
     filepaths = [
@@ -451,7 +432,7 @@ def main(config):
 
     total = len(filepaths)
     args_list = [
-        (filepath, idx, total, W, H, beta_max, plot, threshold)
+        (filepath, idx, total, W, H, beta_max, plot, threshold, audio_type)
         for idx, filepath in enumerate(filepaths, 1)
     ]
 

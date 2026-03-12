@@ -150,7 +150,8 @@ def midi2note(file: Union[os.PathLike, str],
                                 onset=current_time,
                                 offset=current_time + drum_offset_sec,
                                 pitch=msg.note,
-                                velocity=msg.velocity)
+                                velocity=msg.velocity,
+                                contour=[])
                 finished_notes.append(new_note)
             else:
                 new_note = Note(is_drum=False,
@@ -158,7 +159,8 @@ def midi2note(file: Union[os.PathLike, str],
                                 onset=current_time,
                                 offset=None,
                                 pitch=msg.note,
-                                velocity=msg.velocity)
+                                velocity=msg.velocity,
+                                contour=[])
                 active_notes[msg.channel].append(new_note)
         elif msg.type == 'note_off' or (msg.type == 'note_on' and msg.velocity == 0):
             temp_active_notes = active_notes.copy()

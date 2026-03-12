@@ -4,7 +4,7 @@ sys.path.append(os.path.abspath(''))
 
 from collections import defaultdict
 from gse.src.utils.FeatureNote_dataclass import FeatureNote, Attributes, Features
-from gse.src.utils.Track_dataclass import Track, TrackAudio
+from gse.src.utils.Track_dataclass import Track
 import pyfar as pf
 import glob
 import re
