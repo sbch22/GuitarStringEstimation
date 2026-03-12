@@ -392,8 +392,8 @@ def main(track_directory):
         file_counter += 1
         print(f"Processed file {file_counter}: {filename}")
 
-        if file_counter >= files_to_analyze: break
+        # if file_counter >= files_to_analyze: break
 
 if __name__ == "__main__":
-    # main('../noteData/GuitarSet/train/')
+    main('../noteData/GuitarSet/train/')
     main('../noteData/GuitarSet/test/')

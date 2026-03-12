@@ -110,7 +110,7 @@ def main():
     grid = GridSearchCV(
         SVM,
         param_grid,
-        cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
+        cv=cv,
         scoring='accuracy',
         n_jobs=-1,  # ← parallelizes all 4×4×5 = 80 fits across all cores
         verbose=2  # shows progress

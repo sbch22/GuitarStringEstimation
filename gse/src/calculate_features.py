@@ -9,11 +9,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 from configparser import ConfigParser
 import pyfar as pf
+import librosa as lib
+from scipy import stats
 
 from utils.FeatureNote_dataclass import FilterReason
 from utils.FeatureNote_dataclass import Features
+from find_partials import note_audio_preprocess
 
-
+""" FEATURES """
 def filter_betas(betas, beta_max):
     """Filter outliers from beta array using IQR method."""
     valid = ~np.isnan(betas)
@@ -48,6 +51,60 @@ def filter_betas(betas, beta_max):
 
     return filtered_values
 
+def spectral_centroid_feature(note, note_audio, W, H):
+    audio_data = note_audio.time
+    sr = note_audio.sr
+
+    # extract note audio from
+    onset_sample = int(note.attributes.onset * sr)
+    offset_sample = int(note.attributes.offset * sr)
+    note_audio = audio_data[onset_sample:offset_sample]
+    preprocessed_audio = note_audio_preprocess(note_audio, W, H)
+
+    # Or guard before assignment in process_track_extract_partials:
+    if note.features is None:
+        note.features = Features()
+
+    """ Spectral Centroid """
+    S = np.abs(np.fft.rfft(preprocessed_audio, n=W, axis=1)).T  # shape: (2049, 24)
+    sc = lib.feature.spectral_centroid(S=S, sr=sr, n_fft=W)
+
+    median = np.nanmedian(
+        sc, axis=1
+    )
+    mean = np.nanmean(
+        sc,
+        axis=1
+    )
+    min = np.nanmin(
+        sc,
+        axis=1
+    )
+    max = np.nanmax(
+        sc,
+        axis=1
+    )
+    std = np.nanstd(
+        sc,
+        axis=1
+    )  # (K-1,)
+    var = np.nanvar(
+        sc,
+        axis=1
+    )  # (K-1,)
+
+    sc_measures = np.array([
+        median,
+        mean,
+        min,
+        max,
+        std,
+        var,
+        stats.skew(sc, axis=1, nan_policy="omit"),
+        stats.kurtosis(sc, axis=1, nan_policy="omit"),
+        np.apply_along_axis(kde_mode, axis=1, arr=sc),
+    ])
+    note.features.spectral_centroid = sc_measures
 
 def estimate_inharmonicity_coefficient_all_frets(partials, fret, min_partials=6):
     freqs = partials.frequencies  # (T, K)
@@ -138,10 +195,12 @@ def relative_amplitude_deviations(partials):
         max_amps,
         std_amps,
         var_amps,
+        stats.skew(rel_amps, axis=0, nan_policy="omit"),
+        stats.kurtosis(rel_amps, axis=0, nan_policy="omit"),
+        np.apply_along_axis(kde_mode, axis=0, arr=rel_amps),
     ])
 
     return rel_amp_measures, amp_slopes
-
 
 def relative_freq_deviations(partials, beta):
     freqs = partials.frequencies      # (T, K)
@@ -162,31 +221,32 @@ def relative_freq_deviations(partials, beta):
 
     # Absolute deviation
     abs_freq_deviations = ideal_f_k - freqs_k   # (T, K-1)
+    rel_freq_deviations = abs_freq_deviations / freqs_k
 
 
     # statistical measures
     median_freq_deviations = np.nanmedian(
-        abs_freq_deviations / freqs_k,
+        rel_freq_deviations,
         axis=0
     )  # (K-1,)
     mean_freq_deviations = np.nanmean(
-        abs_freq_deviations / freqs_k,
+        rel_freq_deviations,
         axis=0
     )  # (K-1,)
     min_freq_deviations = np.nanmin(
-        abs_freq_deviations / freqs_k,
+        rel_freq_deviations,
         axis=0
     )  # (K-1,)
     max_freq_deviations = np.nanmax(
-        abs_freq_deviations / freqs_k,
+        rel_freq_deviations,
         axis=0
     )  # (K-1,)
     std_freq_deviations = np.nanstd(
-        abs_freq_deviations / freqs_k,
+        rel_freq_deviations,
         axis=0
     )  # (K-1,)
     var_freq_deviations = np.nanvar(
-        abs_freq_deviations / freqs_k,
+        rel_freq_deviations,
         axis=0
     )  # (K-1,)
 
@@ -197,13 +257,21 @@ def relative_freq_deviations(partials, beta):
         max_freq_deviations,
         std_freq_deviations,
         var_freq_deviations,
+        stats.skew(rel_freq_deviations, axis=0, nan_policy="omit"),
+        stats.kurtosis(rel_freq_deviations, axis=0, nan_policy="omit"),
+        np.apply_along_axis(kde_mode, axis=0, arr=rel_freq_deviations)
     ])
 
     return freq_deviation_measures
 
+def kde_mode(data):
+    kde = stats.gaussian_kde(data)
+    x = np.linspace(data.min(), data.max(), 1000)
+    return x[np.argmax(kde(x))]
+
 
 def process_single_file(args):
-    filepath, beta_max, plot, threshold = args
+    filepath, beta_max, plot, threshold, W, audio_type = args
 
     print(f"Processing {filepath}")
 
@@ -238,6 +306,10 @@ def process_single_file(args):
             note.invalidate(FilterReason.NO_BETAS_AFTER_FILTER, step="calculate_features")
             continue
 
+
+        # todo: decide which betas I want to use
+        # betas_filtered = betas
+
         # assign attributed f0 to features
         note.features.f0 = note.attributes.pitch
 
@@ -249,13 +321,24 @@ def process_single_file(args):
             np.std(betas_filtered, axis=0),
             np.var(betas_filtered, axis=0),
             np.min(betas_filtered, axis=0),
-            np.max(betas_filtered, axis=0)]) # todo: skewness & curtuosis, mode
+            np.max(betas_filtered, axis=0),
+            stats.skew(betas_filtered, axis=0),
+            stats.kurtosis(betas_filtered, axis=0),
+            kde_mode(betas_filtered),
+        ])
+
+
+        # spectral centroid
+        audio_filepath = track.audio_paths[audio_type]
+        note_audio = pf.io.read_audio(audio_filepath)
+        spectral_centroid_feature(note, note_audio, W)
+
 
         amp_deviation_measures, amp_decay_coefficients = relative_amplitude_deviations(note.partials) # (25,)
         freq_deviation_measures = relative_freq_deviations(note.partials, median_beta)
 
         # valid_slopes = np.isfinite(amp_decay_coefficients)
-        valid_partials = np.isfinite(amp_decay_coefficients).astype(int) # make 0 and 1
+        valid_partials = np.isfinite(amp_decay_coefficients)#.astype(int)
 
         # write into note.features
         note.features.beta = median_beta
@@ -283,6 +366,7 @@ def main(config):
     beta_max = config.getfloat('params', 'beta_max')
     threshold = config.getint('params', 'threshold')
     plot = config.getboolean('params', 'plot')
+    audio_type = config.get('paths', 'audio_type')
 
     track_directory = config.get('paths', 'track_directory')
 
@@ -296,7 +380,7 @@ def main(config):
         if os.path.isfile(os.path.join(track_directory, filename))
     ]
 
-    args_list = [(fp, beta_max, plot, threshold) for fp in filepaths]
+    args_list = [(fp, beta_max, plot, threshold, W, audio_type) for fp in filepaths]
 
     # Create pool and process files
     num_processes = mp.cpu_count() - 1  # Leave one core free
@@ -309,9 +393,6 @@ def main(config):
 
 
 if __name__ == "__main__":
-    mp.set_start_method("spawn", force=True)
-
-    # load config config
     config = ConfigParser()
     config.read('config_train.ini')
 
