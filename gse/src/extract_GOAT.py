@@ -23,6 +23,10 @@ def create_track_from_DadaGP(DadaGP_file: str, track_id: str) -> Track:
         if l.startswith("downtune:"):
             downtune = int(l.split(":")[1])
 
+    downtune += 12  # Artefakt herausrechnen
+    if downtune != 0:
+        return None
+
     SECONDS_PER_TICK = 60.0 / (tempo * 3840)
 
     STANDARD_TUNING = {
@@ -82,40 +86,42 @@ def create_track_from_DadaGP(DadaGP_file: str, track_id: str) -> Track:
                     FeatureNote(
                         attributes=attr,
                         features=Features(),
-                        origin="dadagp"
+                        origin="gt",
+                        dataset="GOAT"
                     )
                 )
 
             active_notes.clear()
             current_tick = end_tick
 
-        # ignore: new_measure, rest, nfx:hammer, nfx:tie, etc.
-
+    # ignore: new_measure, rest, nfx:hammer, nfx:tie, etc.
     return Track(
         name=track_id,
         notes=feature_notes,
-        audio=TrackAudio(),
         metadata={
             "tempo": tempo,
             "downtune": downtune,
-            "source": "GOAT-DadaGP"
+            "source": "GOAT"
         }
     )
 
-def load_track_audio(track: Track, data_dir: str):
+
+def load_track_audio_paths(track: Track, data_dir: str):
     base_name = track.name  # e.g. "item_0"
 
     paths = {
-        "clean": os. path.join(data_dir, base_name + ".wav")
-        # here implement for amp 1 - 6
+        "clean": os. path.join(data_dir, base_name + ".wav"),
+        "amp1": os.path.join(data_dir, base_name + "_amp_1.wav"),
+        "amp2": os.path.join(data_dir, base_name + "_amp_2.wav"),
+        "amp3": os.path.join(data_dir, base_name + "_amp_3.wav"),
+        "amp4": os.path.join(data_dir, base_name + "_amp_4.wav"),
+        "amp5": os.path.join(data_dir, base_name + "_amp_5.wav")
     }
 
     for attr, file_path in paths.items():
         if os.path.exists(file_path):
             print(f"Loading {attr} from {file_path}")
-            setattr(track.audio, attr, pf.io.read_audio(file_path))
-        else:
-            print(f"Missing {attr} file for {base_name}: {file_path}")
+
 
 
 def preprocess_dataset(data_dir, save_dir):
@@ -133,8 +139,11 @@ def preprocess_dataset(data_dir, save_dir):
 
         if os.path.exists(track_DadaGP):
             track = create_track_from_DadaGP(track_DadaGP, GOAT_id)
-            load_track_audio(track, dir) # load all needed audio files
+            if track is None:
+                print(f"Skipping {GOAT_id} (downtuned)")
+                continue
 
+            load_track_audio_paths(track, dir) # load all needed audio files
 
             track_filename = GOAT_id + '.pkl'
             save_path = os.path.join(save_dir, track_filename)
