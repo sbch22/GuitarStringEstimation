@@ -279,9 +279,6 @@ def process_track_extract_partials(track, W, H, beta_max, audio_type, n_partials
     audio = pf.io.read_audio(filepath)
     sr = audio.sampling_rate
 
-    # 6 x n_samples Matrix
-    audio_data = audio.time
-
     for note in track.valid_notes:
         # extract note audio from
         onset_sample = int(note.attributes.onset * sr)
@@ -289,7 +286,11 @@ def process_track_extract_partials(track, W, H, beta_max, audio_type, n_partials
 
         k_f0 = int(note.attributes.pitch * W / sr)
 
-        note_audio = audio_data[onset_sample:offset_sample]
+        audio_data = audio.time  # shape: (channels, n_samples)
+        if audio_data.ndim == 1:
+            note_audio = audio_data[onset_sample:offset_sample]
+        else:
+            note_audio = audio_data[0, onset_sample:offset_sample]  # Kanal
 
         if note_audio is None:
             note.invalidate(FilterReason.NO_HARMONIC_AUDIO, step="find_partials")

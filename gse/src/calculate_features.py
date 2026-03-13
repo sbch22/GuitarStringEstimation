@@ -53,13 +53,16 @@ def filter_betas(betas, beta_max):
 
 def spectral_centroid_feature(note, note_audio, W, H):
     audio_data = note_audio.time
-    sr = note_audio.sr
+    sr = note_audio.sampling_rate
 
     # extract note audio from
     onset_sample = int(note.attributes.onset * sr)
     offset_sample = int(note.attributes.offset * sr)
-    note_audio = audio_data[onset_sample:offset_sample]
-    preprocessed_audio = note_audio_preprocess(note_audio, W, H)
+    if audio_data.ndim == 1:
+        note_audio = audio_data[onset_sample:offset_sample]
+    else:
+        note_audio = audio_data[0, onset_sample:offset_sample]  # Kanal
+    preprocessed_audio, _ = note_audio_preprocess(note_audio, W, H)
 
     # Or guard before assignment in process_track_extract_partials:
     if note.features is None:
@@ -265,13 +268,18 @@ def relative_freq_deviations(partials, beta):
     return freq_deviation_measures
 
 def kde_mode(data):
+    data = np.asarray(data, dtype=float)
+    data = data[np.isfinite(data)]
+    if len(data) < 2:
+        return np.nan
+    if np.std(data) == 0:       # alle Werte identisch → Modus ist der Wert selbst
+        return data[0]
     kde = stats.gaussian_kde(data)
-    x = np.linspace(data.min(), data.max(), 1000)
+    x = np.linspace(min(data), max(data), 1000)
     return x[np.argmax(kde(x))]
 
-
 def process_single_file(args):
-    filepath, beta_max, plot, threshold, W, audio_type = args
+    filepath, beta_max, plot, threshold, W, H, audio_type = args
 
     print(f"Processing {filepath}")
 
@@ -331,7 +339,7 @@ def process_single_file(args):
         # spectral centroid
         audio_filepath = track.audio_paths[audio_type]
         note_audio = pf.io.read_audio(audio_filepath)
-        spectral_centroid_feature(note, note_audio, W)
+        spectral_centroid_feature(note, note_audio, W, H)
 
 
         amp_deviation_measures, amp_decay_coefficients = relative_amplitude_deviations(note.partials) # (25,)
@@ -380,7 +388,7 @@ def main(config):
         if os.path.isfile(os.path.join(track_directory, filename))
     ]
 
-    args_list = [(fp, beta_max, plot, threshold, W, audio_type) for fp in filepaths]
+    args_list = [(fp, beta_max, plot, threshold, W,H, audio_type) for fp in filepaths]
 
     # Create pool and process files
     num_processes = mp.cpu_count() - 1  # Leave one core free

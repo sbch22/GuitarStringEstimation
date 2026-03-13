@@ -10,6 +10,7 @@ import numpy as np
 from collections import defaultdict
 import matplotlib.pyplot as plt
 import seaborn as sns
+import warnings
 
 
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
@@ -369,6 +370,14 @@ def main():
 
     SVM = joblib.load("svm_pipeline.joblib")
 
+    # TODO: suppress warnings empty features
+    warnings.filterwarnings(
+        "ignore",
+        message="Skipping features without any observed values",
+        category=UserWarning,
+        module="sklearn.impute"
+    )
+
     # Collect all file paths
     filepaths = [
         os.path.join(track_directory, filename)
@@ -440,8 +449,8 @@ def main():
     stat_groups = get_stat_groups(feature_groups, measure_segs_with_k)
 
     # Run both
-    segment_importance = grouped_permutation_importance(SVM, FX_test, labels_test, feature_groups, n_repeats=10)
-    stat_importance = grouped_permutation_importance(SVM, FX_test, labels_test, stat_groups, n_repeats=10)
+    segment_importance = grouped_permutation_importance(SVM, FX_test, labels_test, feature_groups, n_repeats=5)
+    stat_importance = grouped_permutation_importance(SVM, FX_test, labels_test, stat_groups, n_repeats=5)
 
     for name, res in sorted(segment_importance.items(), key=lambda x: -x[1]["mean"]):
         print(f"{name:30s}  importance: {res['mean']:.4f} ± {res['std']:.4f}")
@@ -456,7 +465,7 @@ def main():
     partial_groups_top = {k: v for k, v in partial_groups.items() if k < N}
 
     partial_importance = grouped_permutation_importance(
-        SVM, FX_test, labels_test, partial_groups_top, n_repeats=10
+        SVM, FX_test, labels_test, partial_groups_top, n_repeats=3
     )
 
     print("\nImportance by partial index:")

@@ -78,7 +78,7 @@ def create_track_from_DadaGP(DadaGP_file: str, track_id: str) -> Track:
                     velocity=1,
                     midi_note=n["midi"],
                     pitch=n["pitch"],
-                    string_index=n["string"],
+                    string_index=n["string"]-1, # -1 because 1-6 instead of 0-5
                     fret=n["fret"]
                 )
 
@@ -121,6 +121,7 @@ def load_track_audio_paths(track: Track, data_dir: str):
     for attr, file_path in paths.items():
         if os.path.exists(file_path):
             print(f"Loading {attr} from {file_path}")
+            track.audio_paths = paths
 
 
 
