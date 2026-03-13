@@ -16,7 +16,7 @@
     The original release of Slakh, called Slakh2100, 
     contains 2100 automatically mixed tracks and accompanying, aligned MIDI files, 
     synthesized from 187 instrument patches categorized into 34 classes, totaling 
-    145 hours of mixture data.
+    145 hours of mixture noteData.
 
     This loader supports two versions of Slakh:
     - Slakh2100-redux: a deduplicated version of slakh2100 containing 1710 multitracks
@@ -133,10 +133,10 @@ class Track(core.Track):
         program_number (int): MIDI instrument program number
 
     Cached Properties:
-        midi (PrettyMIDI): midi data used to generate the audio
-        notes (NoteData or None): note representation of the midi data.
+        midi (PrettyMIDI): midi noteData used to generate the audio
+        notes (NoteData or None): note representation of the midi noteData.
             If there are no notes in the midi file, returns None.
-        multif0 (MultiF0Data or None): multif0 representaation of the midi data.
+        multif0 (MultiF0Data or None): multif0 representaation of the midi noteData.
             If there are no notes in the midi file, returns None.
 
     """
@@ -157,7 +157,7 @@ class Track(core.Track):
         self.metadata_path = self.get_path("metadata")
 
         # split (train/validation/test/omitted) is part of the relative filepath in the index
-        self.split = None  # for baby_slakh, there are no data splits - set to None
+        self.split = None  # for baby_slakh, there are no noteData splits - set to None
         # if index["version"] == "2100-redux":
         if "2100-redux" in index["version"]:
             self.split = self._track_paths["metadata"][0].split(os.sep)[1]
@@ -236,7 +236,7 @@ class Track(core.Track):
         return load_audio(self.audio_path)
 
     def to_jams(self):
-        """Jams: the track's data in jams format"""
+        """Jams: the track's noteData in jams format"""
         return jams_utils.jams_converter(
             audio_path=self.audio_path,
             note_data=[(self.notes, "Notes")],
@@ -253,7 +253,7 @@ class MultiTrack(core.MultiTrack):
         track_audio_property (str): the name of the attribute of Track which
             returns the audio to be mixed
         mix_path (str): path to the multitrack mix audio
-        midi_path (str): path to the full midi data used to generate the mixture
+        midi_path (str): path to the full midi noteData used to generate the mixture
         metadata_path (str): path to the multitrack metadata file
         split (str or None): one of 'train', 'validation', 'test', or 'omitted'.
             'omitted' tracks are part of slakh2100-redux which were found to be
@@ -265,9 +265,9 @@ class MultiTrack(core.MultiTrack):
         overall_gain (float): gain applied to every stem to make sure mixture does not clip when stems are summed
 
     Cached Properties:
-        midi (PrettyMIDI): midi data used to generate the mixture audio
-        notes (NoteData): note representation of the midi data
-        multif0 (MultiF0Data): multif0 representation of the midi data
+        midi (PrettyMIDI): midi noteData used to generate the mixture audio
+        notes (NoteData): note representation of the midi noteData
+        multif0 (MultiF0Data): multif0 representation of the midi noteData
 
     """
 
@@ -285,7 +285,7 @@ class MultiTrack(core.MultiTrack):
         self.metadata_path = self.get_path("metadata")
 
         # split (train/validation/test) is determined by the relative filepath in the index
-        self.split = None  # for baby_slakh, there are no data splits - set to None
+        self.split = None  # for baby_slakh, there are no noteData splits - set to None
         # if index["version"] == "2100-redux":
         if "2100-redux" in index["version"]:
             self.split = self._multitrack_paths["mix"][0].split(os.sep)[1]
@@ -352,7 +352,7 @@ class MultiTrack(core.MultiTrack):
         return load_audio(self.mix_path)
 
     def to_jams(self):
-        """Jams: the track's data in jams format"""
+        """Jams: the track's noteData in jams format"""
         return jams_utils.jams_converter(
             audio_path=self.mix_path,
             note_data=[(self.notes, "Notes")],

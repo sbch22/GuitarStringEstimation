@@ -38,7 +38,7 @@ Follow the instructions in the CLI. For this project, only GuitarSet dataset is 
 
 6. Extract notes information the dataset:
 ```bash
-python extract_dataset.py
+python extract_GuitarSet.py
 ```
 
 ## Dataset

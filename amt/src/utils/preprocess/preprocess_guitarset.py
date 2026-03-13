@@ -24,7 +24,8 @@ def create_note_event_and_note_from_jam(jam_file: str, id: str) -> Tuple[Dict, D
                                 onset=obs.time,
                                 offset=obs.time + obs.duration,
                                 pitch=round(obs.value),
-                                velocity=1)
+                                velocity=1,
+                                contour=[])
                     notes.append(note)
     # Sort, validate, and trim notes
     notes = sort_notes(notes)
@@ -249,7 +250,7 @@ def preprocess_guitarset16k(data_home: os.PathLike,
     file_list_all = {int(key): value for key, value in fl.items()}
     generate_pitch_shifted_wav_and_midi(file_list_all, min_pitch_shift=min_pitch_shift, max_pitch_shift=max_pitch_shift)
 
-    # Create file_list.json for pitch shifted data
+    # Create file_list.json for pitch shifted noteData
     for split in ['progression_1', 'progression_2', 'progression_3', 'train', 'all']:
         src_file_list_path = os.path.join(output_index_dir, f'{dataset_name}_{split}_file_list.json')
         with open(src_file_list_path, 'r') as f:
@@ -313,7 +314,7 @@ def create_filelist_by_style_guitarset16k(data_home: os.PathLike, dataset_name: 
         fl = json.load(f)
     assert len(fl) == 720
 
-    # Create file_list.json for training each style using pitch shifted data
+    # Create file_list.json for training each style using pitch shifted noteData
     styles = ['BN', 'Funk', 'SS', 'Jazz', 'Rock']
     for style in styles:
         # Create and write pshift file list
@@ -339,50 +340,3 @@ def create_filelist_by_style_guitarset16k(data_home: os.PathLike, dataset_name: 
             json.dump(test_file_list, f, indent=4)
         print(f'Created {output_file}')
 
-
-# BASIC_PITCH_VALIDATION_IDS = [
-#     "05_Funk2-108-Eb_comp", "04_BN2-131-B_comp", "04_Jazz3-150-C_solo", "05_Rock2-85-F_solo",
-#     "05_Funk3-98-A_comp", "05_BN3-119-G_comp", "02_SS2-107-Ab_solo", "01_BN2-131-B_solo",
-#     "00_BN2-166-Ab_comp", "04_SS1-100-C#_solo", "01_BN2-166-Ab_solo", "01_Rock1-130-A_solo",
-#     "04_Funk2-119-G_solo", "01_SS2-107-Ab_comp", "05_Funk3-98-A_solo", "05_Funk1-114-Ab_comp",
-#     "05_Jazz2-187-F#_solo", "05_SS1-100-C#_comp", "00_Rock3-148-C_solo", "02_Rock3-117-Bb_comp",
-#     "01_BN1-147-Gb_solo", "01_Rock1-90-C#_solo", "01_SS2-107-Ab_solo", "02_Jazz3-150-C_solo",
-#     "00_Funk1-97-C_solo", "05_SS3-98-C_solo", "03_Rock3-148-C_comp", "03_Rock3-117-Bb_solo",
-#     "04_Jazz2-187-F#_solo", "05_Jazz2-187-F#_comp", "02_SS1-68-E_solo", "04_SS2-88-F_solo",
-#     "04_BN2-131-B_solo", "04_Jazz3-137-Eb_comp", "00_SS2-107-Ab_comp", "01_Rock1-130-A_comp",
-#     "00_Jazz1-130-D_comp", "04_Funk2-108-Eb_comp", "05_BN2-166-Ab_comp"
-# ]
-
-# BASIC_PITCH_TEST_IDS = [
-#     "04_SS3-84-Bb_solo", "02_Funk1-114-Ab_solo", "05_Funk1-114-Ab_solo", "05_Funk1-97-C_solo",
-#     "00_Rock3-148-C_comp", "00_Jazz3-137-Eb_comp", "00_Jazz1-200-B_comp", "03_SS3-98-C_solo",
-#     "05_Jazz1-130-D_comp", "00_Jazz2-110-Bb_comp", "02_Funk3-98-A_comp", "04_Rock1-130-A_comp",
-#     "03_BN1-129-Eb_comp", "03_Funk2-119-G_comp", "05_BN1-147-Gb_comp", "02_Rock1-90-C#_comp",
-#     "00_Funk3-98-A_solo", "01_SS1-100-C#_comp", "00_Funk3-98-A_comp", "02_BN3-154-E_comp",
-#     "01_Jazz3-137-Eb_comp", "00_BN2-131-B_comp", "04_SS1-68-E_solo", "05_Funk1-97-C_comp",
-#     "04_Jazz3-137-Eb_solo", "05_Rock2-142-D_solo", "02_BN3-119-G_solo", "02_Rock2-142-D_solo",
-#     "01_BN1-129-Eb_solo", "00_Rock2-85-F_comp", "00_Rock1-130-A_solo"
-# ]
-
-# def create_filelist_for_basic_pitch_benchmark_guitarset16k(data_home: os.PathLike,
-#                                                            dataset_name: str = 'guitarset') -> None:
-
-#     # Directory and file paths
-#     base_dir = os.path.join(data_home, dataset_name + '_yourmt3_16k')
-#     output_index_dir = os.path.join(data_home, 'yourmt3_indexes')
-#     os.makedirs(output_index_dir, exist_ok=True)
-
-#     # Load filelist, pshift_all for train
-#     file_list_pshift_all_path = os.path.join(output_index_dir,
-#                                              f'{dataset_name}_all_pshift_file_list.json')
-#     with open(file_list_pshift_all_path, 'r') as f:
-#         fl_pshift = json.load(f)
-#     assert len(fl_pshift) == 7920
-
-#     # Load filelist, all without pshift
-#     file_list_all_path = os.path.join(output_index_dir, f'{dataset_name}_all_file_list.json')
-#     with open(file_list_all_path, 'r') as f:
-#         fl = json.load(f)
-#     assert len(fl) == 720
-
-#     # This is abandoned, because the split is not official one.

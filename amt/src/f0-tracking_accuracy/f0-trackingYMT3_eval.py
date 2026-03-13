@@ -126,9 +126,9 @@ def load_model_checkpoint(args=None):
         parser.add_argument('-tk', '--task', type=str, default='mt3_full_plus',
                             help='tokenizer type (default=mt3_full_plus). See config/task.py for more options.')
         parser.add_argument('-epv', '--eval-program-vocab', type=str, default=None,
-                            help='evaluation vocabulary (default=None). If None, default vocabulary of the data preset will be used.')
+                            help='evaluation vocabulary (default=None). If None, default vocabulary of the noteData preset will be used.')
         parser.add_argument('-edv', '--eval-drum-vocab', type=str, default=None,
-                            help='evaluation vocabulary for drum (default=None). If None, default vocabulary of the data preset will be used.')
+                            help='evaluation vocabulary for drum (default=None). If None, default vocabulary of the noteData preset will be used.')
         parser.add_argument('-etk', '--eval-subtask-key', type=str, default='default',
                             help='evaluation subtask key (default=default). See config/task.py for more options.')
         parser.add_argument('-t', '--onset-tolerance', type=float, default=0.05, help='onset tolerance (default=0.05).')
@@ -328,7 +328,7 @@ def extract_GT(audio_filepath):
 
     Given the path to an audio file, this function locates the matching
     annotation `.npy` file in the `annotation/` directory, loads it, and
-    returns the stored note data.
+    returns the stored note noteData.
 
     Args:
         audio_filepath (str): Path to an audio file.
@@ -357,7 +357,7 @@ def extract_GT(audio_filepath):
         print(f"Warning: Annotation file '{annotation_filepath}' does not exist.")
         return None
 
-    # Load annotation data
+    # Load annotation noteData
     GT_array = np.load(annotation_filepath, allow_pickle=True)
     data = GT_array.item()  # extract dict from array
     notes = data["notes"]
@@ -519,8 +519,8 @@ def main(dbg: bool = False):
 
     # Audio input directory
     print(f"Current working directory: {os.getcwd()}")
-    audio_directory = "../../../data/guitarset_yourmt3_16k/audio_mono-pickup_mix/"
-    # Alternative: "../../data/guitarset_yourmt3_16k/audio_mono-mic/"
+    audio_directory = "../../../noteData/guitarset_yourmt3_16k/audio_mono-pickup_mix/"
+    # Alternative: "../../noteData/guitarset_yourmt3_16k/audio_mono-mic/"
 
     # Onset/offset tolerance in seconds
     delta = 0.05  # 50 ms

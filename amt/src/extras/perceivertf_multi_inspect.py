@@ -709,7 +709,7 @@ def test_case_forward_enc_perceiver_tf_dec_multi_t5():
             seq_lengths[k] = t+1  
         return catt_np, seq_lengths
 
-    # data = dec_catt[1].detach().numpy() # last layer's cross attention
+    # noteData = dec_catt[1].detach().numpy() # last layer's cross attention
     l = 4
     data = dec_catt[l].detach().numpy() 
     data, seq_lengths = remove_values_after_eos(data, pred_ids, max_k=13)

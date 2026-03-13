@@ -68,13 +68,13 @@ class CachedAudioDataset(Dataset):
     """
     🎧 CachedAudioDataset:
 
-    This dataset subsamples from a temporal cache of audio data to improve efficiency
+    This dataset subsamples from a temporal cache of audio noteData to improve efficiency
     during training.
 
     - The dataset uses a fixed size cache and subsamples from the N most recent batches
       stored in the cache.
     - This design can help alleviate the disk I/O bottleneck that can occur during
-      random access of audio multi-track data for augmentation.
+      random access of audio multi-track noteData for augmentation.
 
     Tips:
     - The '__getitem__()' method returns a sub-batch of samples from the cache with a
@@ -83,7 +83,7 @@ class CachedAudioDataset(Dataset):
       (num_workers * subbatch_size).
     - Larger 'subbatch_size' will result in more efficient parallelization.
  
-    👀 See '_update_cache()' for customized data processing.
+    👀 See '_update_cache()' for customized noteData processing.
 
     """
 
@@ -114,7 +114,7 @@ class CachedAudioDataset(Dataset):
     ) -> None:
         """
         Args:
-            file_list: Path to the file list, or a dictionary of file list. e.g. "../../data/yourmt3_indexes/slakh_train_file_list.json",
+            file_list: Path to the file list, or a dictionary of file list. e.g. "../../noteData/yourmt3_indexes/slakh_train_file_list.json",
             task_manager: Task manager.
             fs: Sampling frequency.
             seg_len_frame: Length of the audio segment in frames.
@@ -342,8 +342,8 @@ class CachedAudioDataset(Dataset):
 
         Function execution time: 60 µs for sub_bsz=36 with single worker
 
-        NOTE: This function returns mutable instances of the cached data. If you want to modify the
-            data, make sure to deepcopy the returned data, as in the augment.py/drop_random_stems_from_bundle()
+        NOTE: This function returns mutable instances of the cached noteData. If you want to modify the
+            noteData, make sure to deepcopy the returned noteData, as in the augment.py/drop_random_stems_from_bundle()
         """
         # construct output dict
         sampled_data = {
@@ -394,7 +394,7 @@ class CachedAudioDataset(Dataset):
             sampled_data['is_drum_segments'].append(d['is_drum'])
             sampled_data['has_stems_segments'].append(d['has_stems'])
             sampled_data['has_unannotated_segments'].append(d['has_unannotated'])
-        return sampled_data, sampled_ids  # Note that the data returned is mutable instance.
+        return sampled_data, sampled_ids  # Note that the noteData returned is mutable instance.
 
     def _update_cache(self, index) -> None:
         data = {
@@ -427,7 +427,7 @@ class CachedAudioDataset(Dataset):
         if UNANNOTATED_PROGRAM in audio_data['program']:
             data['has_unannotated'] = True
 
-        # Pad audio data shorter than the segment length
+        # Pad audio noteData shorter than the segment length
         if audio_data['audio_array'].shape[1] < self.seg_len_frame + 2000:
             audio_data['audio_array'] = np.pad(audio_data['audio_array'],
                                                ((0, 0),
@@ -483,7 +483,7 @@ class CachedAudioDataset(Dataset):
                                                        start_frame_indices=start_frame_indices,
                                                        dtype=np.float32)  # audio_segments: (n_segs, n_stems, n_frames)
 
-        # Add audio and note events of the sliced segments to data
+        # Add audio and note events of the sliced segments to noteData
         data['audio_array'] = audio_segments  # (n_segs, n_stems, n_frames)
         data['note_event_segments'] = note_event_segments  # NoteEventBundle dataclass
 
@@ -653,7 +653,7 @@ def get_cache_data_loader(
 #         num_workers=0)
 
 # with Timer() as t:
-#     for i, data in enumerate(dl):
+#     for i, noteData in enumerate(dl):
 #         if i > 4:
 #             break
 #         print(i)

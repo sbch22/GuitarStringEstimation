@@ -62,7 +62,7 @@ class DistributedSamplerWrapper(DistributedSampler):
     It is especially useful in conjunction with
     `torch.nn.parallel.DistributedDataParallel`. In such case, each
     process can pass a DistributedSamplerWrapper instance as a DataLoader
-    sampler, and load a subset of subsampled data of the original dataset
+    sampler, and load a subset of subsampled noteData of the original dataset
     that is exclusive to it.
 
     .. note::
@@ -154,10 +154,10 @@ def discount_to_target(samples: np.ndarray, target_sum: int) -> np.ndarray:
 
 
 def create_merged_train_dataset_info(data_preset_multi: dict, data_home: Optional[os.PathLike] = None):
-    """Create merged dataset info from data preset multi.   
+    """Create merged dataset info from noteData preset multi.
     Args:
-        data_preset_multi (dict): data preset multi
-        data_home (os.PathLike, optional): path to data home. If None, used the path defined 
+        data_preset_multi (dict): noteData preset multi
+        data_home (os.PathLike, optional): path to noteData home. If None, used the path defined
             in config/config.py. 
     
     Returns:

@@ -200,7 +200,7 @@ def extract_notes_selected_by_programs(notes: List[Note], programs: Set[int], so
 
 
 """ 
-NoteEvent data class:
+NoteEvent noteData class:
 
 Combines NoteEvent and NoteActivity for onset and offset events during Note to Event conversion.
 
