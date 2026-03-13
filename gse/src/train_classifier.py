@@ -37,10 +37,10 @@ def main():
     config_train.read('config_train.ini')
 
     # --- Step 1: Find partials ---
-    find_partials.main(config_train)
+    # find_partials.main(config_train)
 
     # --- Step 2: Calculate features ---
-    calculate_features.main(config_train)
+    # calculate_features.main(config_train)
 
     track_directory = config_train.get('paths', 'track_directory')
 

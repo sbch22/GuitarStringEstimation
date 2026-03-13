@@ -184,6 +184,34 @@ class Track:
                 pred.invalidate(FilterReason.NO_MATCH, step="match_notes")
 
     @staticmethod
+    def match_notes_GOAT(track: "Track", delta: float) -> None:
+        """
+        Here, just the String assignment is switched. The string index can be found in GT,
+        whereas in GuitarSet is is implied by the extraction of notes on the hex-signal.
+        """
+        gt_notes = [n for n in track.notes if n.origin == "gt"]
+        pred_notes = [n for n in track.notes if n.origin == "model"]
+
+        track.gt_notes = gt_notes  # ALL gt notes — matched ones will have match=True
+
+        for pred in pred_notes:
+            matched_gt = next(
+                (gt for gt in gt_notes
+                 if gt.attributes.midi_note == pred.attributes.midi_note
+                 and gt.attributes.program == pred.attributes.program
+                 and abs(pred.attributes.onset - gt.attributes.onset) <= delta),
+                None,
+            )
+            if matched_gt:
+                pred.valid = True
+                pred.match = True
+                pred.dataset = matched_gt.dataset
+                pred.attributes.string_index = matched_gt.attributes.string_index
+                matched_gt.match = True
+            else:
+                pred.invalidate(FilterReason.NO_MATCH, step="match_notes")
+
+    @staticmethod
     def match_notes_between_strings(
             track_audio,
             delta: float,

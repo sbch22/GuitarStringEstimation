@@ -39,6 +39,7 @@ from gse.src.utils.Track_dataclass import filter_analysis
 import numpy as np
 import pyfar as pf
 from collections import defaultdict
+from configparser import ConfigParser
 
 
 
@@ -263,6 +264,59 @@ def transcribe_notes(model, audio_info: Dict, audio_tensor: torch.Tensor, sample
     return final_notes
 
 
+def process_GOAT_track(track, model, audio_type):
+    audio_filepath = track.audio_paths[audio_type]
+    audio_signal = pf.io.read_audio(audio_filepath)
+
+    # strings_signal = track.audio.hex
+    sr = audio_signal.sampling_rate
+    audio_data = audio_signal.time
+
+    audio_tensor = torch.from_numpy(audio_data).float()
+    audio_info = {
+        'sample_rate': sr,
+        'bits_per_sample': 16,  # where do I get this from pyfar?
+        'num_channels': 1,
+        'num_frames': audio_data.shape[-1],
+        'duration': audio_data.shape[-1] / sr,
+        'encoding': 'pcm',
+    }
+    print(f"Audio info: {audio_info}")
+
+    model_string_notes = transcribe_notes(model, audio_info, audio_tensor, sr)
+
+    for note in model_string_notes:
+        # Create an Attributes object for this note
+        attr = Attributes(
+            midi_note=note.pitch,  # redundant but often useful for comparison
+            is_drum=note.is_drum,
+            program=note.program,
+            onset=note.onset,
+            offset=note.offset,
+            velocity=note.velocity,
+            pitch=round(440 * 2 ** ((note.pitch - 69) / 12), 3)
+
+        )
+
+        # Wrap it into a FeatureNote
+        fnote = FeatureNote(
+            origin='model',
+            attributes=attr,
+            valid=True
+        )
+
+        # Append to this track’s note list
+        track.notes.append(fnote)
+
+    track.match_notes_GOAT(track, delta=0.050)  # 50ms
+
+    for note in track.valid_notes:
+        note.what_fret()
+
+    filter_analysis(track.notes)
+    print("Next Track ...")
+
+
 def process_GuitarSet_track(track, model):
     # load audio
     filepath_hex_debeleed = track.audio_paths["hex_debleeded"]
@@ -312,9 +366,7 @@ def process_GuitarSet_track(track, model):
             track.notes.append(fnote)
 
     track.match_notes(track, delta=0.050) # 50ms
-
     track.match_notes_between_strings(strings_signal, 0.05, track.notes)
-    # filter_analysis(track.notes, step="match_notes")
 
     for note in track.valid_notes:
         note.what_fret()
@@ -323,7 +375,7 @@ def process_GuitarSet_track(track, model):
     print("Next Track ...")
 
 
-def main(track_directory):
+def main(track_directory, audio_type):
     # model config
     model_name = "YPTF+Single (noPS)"
     print(f"Running evaluation for model: {model_name}")
@@ -382,18 +434,24 @@ def main(track_directory):
         #  maybe the audio path kex (eg. hex) needs to be in config
 
         # Process the file with debug mode setting
-        process_GuitarSet_track(track, model)
+        # process_GuitarSet_track(track, model)
 
-        # save_path = os.path.join(track_directory, 'dev', filename)
-        save_path = os.path.join(track_directory, filename)
+        process_GOAT_track(track, model, audio_type)
+
+        save_path = os.path.join(track_directory, 'dev', filename)
+        # save_path = os.path.join(track_directory, filename)
 
         track.save(save_path)
         print(f"pickled model-matched note object {filename} into {save_path}.")
         file_counter += 1
         print(f"Processed file {file_counter}: {filename}")
 
-        # if file_counter >= files_to_analyze: break
+        if file_counter >= files_to_analyze: break
 
 if __name__ == "__main__":
-    main('../noteData/GuitarSet/train/')
-    main('../noteData/GuitarSet/test/')
+    # main('../noteData/GuitarSet/train/')
+    # main('../noteData/GuitarSet/test/')
+    # config = ConfigParser()
+    # config.read('config_YMT3_inference.ini')
+
+    main( track_directory='../noteData/GOAT/', audio_type="clean")
