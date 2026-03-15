@@ -83,43 +83,26 @@ def preprocess_dataset(data_dir, save_dir):
             train_filename_list.append(filename_solo)
 
 
-    for train_filename in train_filename_list:
-        filebase = train_filename.split(".wav")[0]
-        guitarset_id = filebase.split("_hex")[0]
-        # load according jams file
-        ann_filename = os.path.join(data_dir, 'annotation', guitarset_id + ".jams")
-
-        track = create_track_from_jam(ann_filename, guitarset_id)
-        # audio
-        base_name = track.name  # e.g. "00_BN1-129-Eb_comp"
-        paths = {
-            "mono_mic": os.path.join(data_dir, "audio_mono-mic", f"{base_name}_mic.wav"),
-            "hex_debleeded": os.path.join(data_dir, "audio_hex-pickup_debleeded", f"{base_name}_hex_cln.wav"),
-            "hex_mono_mix": os.path.join(data_dir, "audio_mono-pickup_mix", f"{base_name}_mix.wav"),
-            "hex": os.path.join(data_dir, "audio_hex-pickup_original", f"{base_name}_hex.wav"),
-        }
-        track.audio_paths = paths
-
-        track_filename = os.path.basename(ann_filename).replace('.jams', '_track.pkl')
-        save_path = os.path.join(save_dir, 'GuitarSet', 'train',  track_filename)
-        track.save(save_path)
-        print(f'Saved track object: {save_path}')
-
-
     # load Senva test file list
     with open('../../data/GuitarSet/GuitarStringSeparation-MF-NMF-NMFD-master/testSet.csv', newline='') as csvfile:
-        test_filename_list = []
+        test_filename_list_comp = []
+
+        test_filename_list_solo = []
         spamreader = csv.reader(csvfile)
         for row in spamreader:
             path_csv = row[:]
             filename = path_csv.pop()
-            test_filename_list.append(filename)
+            test_filename_list_comp.append(filename)
 
             # also load solo file
-            filename.replace("comp", "solo")
-            train_filename_list.append(filename)
+            filename_solo = filename.replace("comp", "solo")
+            test_filename_list_solo.append(filename_solo)
 
-    for test_filename in test_filename_list:
+            # remove data-leakage: remove from solo from train
+            if filename_solo in train_filename_list:
+                train_filename_list.remove(filename)
+
+    for test_filename in test_filename_list_comp:
         filebase = test_filename.split(".wav")[0]
         guitarset_id = filebase.split("_hex")[0]
         # load according jams file
@@ -140,7 +123,55 @@ def preprocess_dataset(data_dir, save_dir):
         print(Track.__module__)
 
         track_filename = os.path.basename(ann_filename).replace('.jams', '_track.pkl')
-        save_path = os.path.join(save_dir, 'GuitarSet', 'test', track_filename)
+        save_path = os.path.join(save_dir, 'GuitarSet', 'test', 'comp', track_filename)
+        track.save(save_path)
+        print(f'Saved track object: {save_path}')
+
+    # loads the according solo files
+    for test_filename in test_filename_list_solo:
+        filebase = test_filename.split(".wav")[0]
+        guitarset_id = filebase.split("_hex")[0]
+        # load according jams file
+        ann_filename = os.path.join(data_dir, 'annotation', guitarset_id + ".jams")
+
+        track = create_track_from_jam(ann_filename, guitarset_id)
+
+        # audio
+        base_name = track.name  # e.g. "00_BN1-129-Eb_comp"
+        paths = {
+            "mono_mic": os.path.join(data_dir, "audio_mono-mic", f"{base_name}_mic.wav"),
+            "hex_debleeded": os.path.join(data_dir, "audio_hex-pickup_debleeded", f"{base_name}_hex_cln.wav"),
+            "hex_mono_mix": os.path.join(data_dir, "audio_mono-pickup_mix", f"{base_name}_mix.wav"),
+            "hex": os.path.join(data_dir, "audio_hex-pickup_original", f"{base_name}_hex.wav"),
+        }
+        track.audio_paths = paths
+
+        print(Track.__module__)
+
+        track_filename = os.path.basename(ann_filename).replace('.jams', '_track.pkl')
+        save_path = os.path.join(save_dir, 'GuitarSet', 'test', 'solo', track_filename)
+        track.save(save_path)
+        print(f'Saved track object: {save_path}')
+
+    for train_filename in train_filename_list:
+        filebase = train_filename.split(".wav")[0]
+        guitarset_id = filebase.split("_hex")[0]
+        # load according jams file
+        ann_filename = os.path.join(data_dir, 'annotation', guitarset_id + ".jams")
+
+        track = create_track_from_jam(ann_filename, guitarset_id)
+        # audio
+        base_name = track.name  # e.g. "00_BN1-129-Eb_comp"
+        paths = {
+            "mono_mic": os.path.join(data_dir, "audio_mono-mic", f"{base_name}_mic.wav"),
+            "hex_debleeded": os.path.join(data_dir, "audio_hex-pickup_debleeded", f"{base_name}_hex_cln.wav"),
+            "hex_mono_mix": os.path.join(data_dir, "audio_mono-pickup_mix", f"{base_name}_mix.wav"),
+            "hex": os.path.join(data_dir, "audio_hex-pickup_original", f"{base_name}_hex.wav"),
+        }
+        track.audio_paths = paths
+
+        track_filename = os.path.basename(ann_filename).replace('.jams', '_track.pkl')
+        save_path = os.path.join(save_dir, 'GuitarSet', 'train',  track_filename)
         track.save(save_path)
         print(f'Saved track object: {save_path}')
 

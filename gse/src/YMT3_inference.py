@@ -434,24 +434,26 @@ def main(track_directory, audio_type):
         #  maybe the audio path kex (eg. hex) needs to be in config
 
         # Process the file with debug mode setting
-        # process_GuitarSet_track(track, model)
+        process_GuitarSet_track(track, model)
 
-        process_GOAT_track(track, model, audio_type)
+        # process_GOAT_track(track, model, audio_type)
 
-        save_path = os.path.join(track_directory, 'dev', filename)
-        # save_path = os.path.join(track_directory, filename)
+        # save_path = os.path.join(track_directory, 'dev', filename)
+        save_path = os.path.join(track_directory, filename)
 
         track.save(save_path)
         print(f"pickled model-matched note object {filename} into {save_path}.")
         file_counter += 1
         print(f"Processed file {file_counter}: {filename}")
 
-        if file_counter >= files_to_analyze: break
+        # if file_counter >= files_to_analyze: break
 
 if __name__ == "__main__":
     # main('../noteData/GuitarSet/train/')
-    # main('../noteData/GuitarSet/test/')
+    main('../noteData/GuitarSet/test/solo/', audio_type="hex_debleeded")
+
+
     # config = ConfigParser()
     # config.read('config_YMT3_inference.ini')
 
-    main( track_directory='../noteData/GOAT/', audio_type="clean")
+    # main( track_directory='../noteData/GOAT/', audio_type="clean")

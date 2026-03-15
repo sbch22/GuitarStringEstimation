@@ -31,18 +31,20 @@ from utils.Track_dataclass import filter_analysis
 def main():
     # load configs
     config_test = ConfigParser()
-    config_test.read('config_test.ini')
+    config_test.read('config_test_comp.ini')
 
     config_train = ConfigParser()
     config_train.read('config_train.ini')
 
     # --- Step 1: Find partials ---
-    # find_partials.main(config_train)
+    find_partials.main(config_train)
 
     # --- Step 2: Calculate features ---
-    # calculate_features.main(config_train)
+    calculate_features.main(config_train)
 
     track_directory = config_train.get('paths', 'track_directory')
+    audio_types_raw = config_train.get('paths', 'audio_types')
+    audio_types = [a.strip() for a in audio_types_raw.split(',')]
 
     # Collect all file paths
     filepaths = [
@@ -61,13 +63,20 @@ def main():
         with open(filepath, "rb") as f:
             track = pickle.load(f)
 
-        # append all notes with filter reasons
         for note in track.notes:
             all_notes.append(note)
 
-        for note in track.valid_notes:
-            all_feature_vectors.append(note.features.feature_vector)
-            all_labels.append(note.attributes.string_index)  # GT
+        for audio_type in audio_types:
+            # append all notes with filter reasons
+
+            for note in track.valid_notes:
+                if audio_type not in note.features:
+                    continue
+                fv = note.features[audio_type].feature_vector
+                if fv is None:
+                    continue
+                all_feature_vectors.append(fv)
+                all_labels.append(note.attributes.string_index)
 
     filter_analysis(all_notes)
 
@@ -82,7 +91,7 @@ def main():
     SVM = Pipeline([
         ('imputer', SimpleImputer(strategy='mean')),
         ('scaler', StandardScaler()),
-        ('svm', SVC(kernel='rbf', C=1.0, gamma='scale', probability=True))
+        ('svm', SVC(kernel='rbf', C=10, gamma=0.001, probability=True))
         # Alternatives if training is too slow at 30k samples:
         # ('svm', LinearSVC(C=1.0, max_iter=2000))               # ~10-50x faster, linear only
         # ('svm', SGDClassifier(loss='hinge', max_iter=1000))     # fastest, needs more tuning
@@ -101,27 +110,35 @@ def main():
     print(f"CV F1 (macro): {results['test_f1_macro'].mean():.3f} ± {results['test_f1_macro'].std():.3f}")
 
     # ── Grid Search ─────────────────────────────────────────────────────────────
-    param_grid = {
-        'svm__C': [0.1, 1, 10, 100],
-        'svm__gamma': ['scale', 'auto', 0.001, 0.01]
-    }
+    # param_grid = {
+    #     'svm__C': [0.1, 1, 10, 100],
+    #     'svm__gamma': ['scale', 'auto', 0.001, 0.01]
+    # }
 
-    print("\nRunning GridSearchCV...")
-    grid = GridSearchCV(
-        SVM,
-        param_grid,
-        cv=cv,
-        scoring='accuracy',
-        n_jobs=-1,  # ← parallelizes all 4×4×5 = 80 fits across all cores
-        verbose=2  # shows progress
-    )
-    grid.fit(FX, labels)
+    # print("\nRunning GridSearchCV...")
+    # grid = GridSearchCV(
+    #     SVM,
+    #     param_grid,
+    #     cv=cv,
+    #     scoring='accuracy',
+    #     n_jobs=-1,  # ← parallelizes all 4×4×5 = 80 fits across all cores
+    #     verbose=2  # shows progress
+    # )
+    # grid.fit(FX, labels)
 
-    print(f"Best params: {grid.best_params_}")
-    print(f"Best CV accuracy: {grid.best_score_:.3f}")
+    # print(f"Best params: {grid.best_params_}")
+    # print(f"Best CV accuracy: {grid.best_score_:.3f}")
+    #
+    # # Das beste Modell ist grid.best_estimator_ — das speicherst du
+    # joblib.dump(grid.best_estimator_, "svm_pipeline.joblib")
 
-    # Das beste Modell ist grid.best_estimator_ — das speicherst du
-    joblib.dump(grid.best_estimator_, "svm_pipeline.joblib")
+    # Final fit on all data
+    SVM.fit(FX, labels)
+    joblib.dump(SVM, "svm_pipeline.joblib")
+
+
+
+
 
 
 if __name__ == "__main__":

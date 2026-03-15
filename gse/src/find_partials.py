@@ -274,121 +274,133 @@ def extract_harmonic_note_audio(note_audio, W, H, sr, plot):
     return harmonic_audio_win, intra_onsets
 
 
-def process_track_extract_partials(track, W, H, beta_max, audio_type, n_partials, plot, threshold):
-    filepath = track.audio_paths[str(audio_type)]
-    audio = pf.io.read_audio(filepath)
-    sr = audio.sampling_rate
+def process_track_extract_partials(track, W, H, beta_max, audio_types, n_partials, plot, threshold):
+    for audio_type in audio_types:
+        filepath = track.audio_paths[str(audio_type)]
+        audio = pf.io.read_audio(filepath)
+        sr = audio.sampling_rate
 
-    for note in track.valid_notes:
-        # extract note audio from
-        onset_sample = int(note.attributes.onset * sr)
-        offset_sample = int(note.attributes.offset * sr)
-
-        k_f0 = int(note.attributes.pitch * W / sr)
-
-        audio_data = audio.time  # shape: (channels, n_samples)
-        if audio_data.ndim == 1:
-            note_audio = audio_data[onset_sample:offset_sample]
-        else:
-            note_audio = audio_data[0, onset_sample:offset_sample]  # Kanal
-
-        if note_audio is None:
-            note.invalidate(FilterReason.NO_HARMONIC_AUDIO, step="find_partials")
-            continue
-
-        preprocessed_audio, window = note_audio_preprocess(note_audio, W, H)
-
-        if preprocessed_audio.ndim < 2:
-            note.invalidate(FilterReason.HARMONIC_AUDIO_TOO_SHORT, step="find_partials")
-            continue
-
-        # Or guard before assignment in process_track_extract_partials:
-        if note.features is None:
-            note.features = Features()
-
-        # calculate accurate freq & amplitude for all possible bins
-        inst_freq, inst_amp = instantaneous_frequency(preprocessed_audio, W, H, sr, window)
-
-        # pick best partials
-        partial_freqs, partial_amps, partial_bins = partial_picker(
-            inst_freq,
-            inst_amp,
-            f0=note.attributes.pitch,
-            k_f0=k_f0,
-            beta_max=beta_max,
-            n_partials=n_partials,
-            sr=sr,
-            W=W,
-            threshold = threshold,
-        )
+        for note in track.valid_notes:
+            # Migrate legacy Partials object to dict
+            if isinstance(note.partials, Partials):
+                note.partials = {}
+            elif note.partials is None:
+                note.partials = {}
 
 
-        # Zeitachse
-        t_frames = np.arange(partial_freqs.shape[0]) * (H / sr)
+            # extract note audio from
+            onset_sample = int(note.attributes.onset * sr)
+            offset_sample = int(note.attributes.offset * sr)
 
-        if plot:
-            # --- Spectrogram with partials overlay ---
-            fft_mag = np.abs(np.fft.rfft(preprocessed_audio, axis=1))
-            fft_mag_db = 20 * np.log10(fft_mag + 1e-12)
+            k_f0 = int(note.attributes.pitch * W / sr)
 
-            # Drop first FFT frame to match inst_freq length
-            fft_mag_db_if = fft_mag_db[1:]
-            times_if = np.arange(fft_mag_db_if.shape[0]) * (H / sr)
+            audio_data = audio.time  # shape: (6, N_samples)
 
-            freqs = np.fft.rfftfreq(W, 1 / sr)
+            if audio_type == "hex_debleeded":
+                string_idx = note.attributes.string_index
+                if string_idx is None or not (0 <= string_idx < audio_data.shape[0]):
+                    note.invalidate(FilterReason.NO_STRING, step="find_partials")
+                    continue
+                note_audio = audio_data[string_idx, onset_sample:offset_sample]
+            else:
+                # mono or mixed signal — collapse to mono if needed
+                if audio_data.ndim == 1:
+                    note_audio = audio_data[onset_sample:offset_sample]
+                else:
+                    note_audio = audio_data[0, onset_sample:offset_sample]
 
-            plt.figure(figsize=(14, 12))
+            if note_audio is None:
+                note.invalidate(FilterReason.NO_NOTE_AUDIO, step="find_partials")
+                continue
 
-            pcm = plt.pcolormesh(
-                times_if,
-                freqs,
-                fft_mag_db_if.T,
-                shading="auto",
-                cmap="magma",
-                vmin=threshold,
-                vmax=2,
+            # call extraction of harmonic audio
+            harmonic_audio = note_audio
+            # harmonic_audio, intra_onsets = extract_harmonic_note_audio(note_audio, W, H, sr, plot)
+            if harmonic_audio is None:
+                note.invalidate(FilterReason.NO_HARMONIC_AUDIO, step="find_partials")
+                continue
+            preprocessed_audio, window = note_audio_preprocess(harmonic_audio, W, H)
+
+            if preprocessed_audio.ndim < 2:
+                note.invalidate(FilterReason.HARMONIC_AUDIO_TOO_SHORT, step="find_partials")
+                continue
+
+            # Or guard before assignment in process_track_extract_partials:
+            if note.features is None:
+                note.features = Features()
+
+            # calculate accurate freq & amplitude for all possible bins
+            inst_freq, inst_amp = instantaneous_frequency(preprocessed_audio, W, H, sr, window)
+
+            # pick best partials
+            partial_freqs, partial_amps, partial_bins = partial_picker(
+                inst_freq,
+                inst_amp,
+                f0=note.attributes.pitch,
+                k_f0=k_f0,
+                beta_max=beta_max,
+                n_partials=n_partials,
+                sr=sr,
+                W=W,
+                threshold = threshold,
             )
 
-            # Overlay partials
-            for p in range(partial_freqs.shape[1]):
-                plt.plot(times_if, partial_freqs[:, p], linewidth=2.5, color='g')
+            # Zeitachse
+            t_frames = np.arange(partial_freqs.shape[0]) * (H / sr)
 
-            # Onsets als vertikale schwarze Linien
-            for onset in intra_onsets:
-                plt.axvline(
-                    x=onset / sr,  # 👈 FIX
-                    color="red",
-                    linestyle="--",
-                    linewidth=2,
-                    alpha=0.8,
+            if plot:
+                # --- Spectrogram with partials overlay ---
+                fft_mag = np.abs(np.fft.rfft(preprocessed_audio, axis=1))
+                fft_mag_db = 20 * np.log10(fft_mag + 1e-12)
+
+                # Drop first FFT frame to match inst_freq length
+                fft_mag_db_if = fft_mag_db[1:]
+                times_if = np.arange(fft_mag_db_if.shape[0]) * (H / sr)
+
+                freqs = np.fft.rfftfreq(W, 1 / sr)
+
+                plt.figure(figsize=(14, 12))
+
+                pcm = plt.pcolormesh(
+                    times_if,
+                    freqs,
+                    fft_mag_db_if.T,
+                    shading="auto",
+                    cmap="magma",
+                    vmin=threshold,
+                    vmax=2,
                 )
 
-            # plt.yscale("log")
-            plt.ylim(80, 8000)
-            plt.colorbar(pcm, label="Magnitude (dB)")
-            plt.title(
-                f"Spectrogram with Extracted Partials – "
-                f"{note.attributes.pitch:.2f} Hz, String: {note.attributes.string_index}"
+                # Overlay partials
+                for p in range(partial_freqs.shape[1]):
+                    plt.plot(times_if, partial_freqs[:, p], linewidth=2.5, color='g')
+
+                # plt.yscale("log")
+                plt.ylim(80, 8000)
+                plt.colorbar(pcm, label="Magnitude (dB)")
+                plt.title(
+                    f"Spectrogram with Extracted Partials – "
+                    f"{note.attributes.pitch:.2f} Hz, String: {note.attributes.string_index}"
+                )
+                plt.xlabel("Time (s)")
+                plt.ylabel("Frequency (Hz)")
+                # plt.legend(ncol=4, fontsize=9)
+                plt.tight_layout()
+                plt.show()
+
+            # save into Partials object
+            note.partials[audio_type] = Partials(
+                frametimes=t_frames,
+                frequencies=partial_freqs,
+                amplitudes=partial_amps,
             )
-            plt.xlabel("Time (s)")
-            plt.ylabel("Frequency (Hz)")
-            # plt.legend(ncol=4, fontsize=9)
-            plt.tight_layout()
-            plt.show()
 
-        # save into Partials object
-        note.partials = Partials(
-            frametimes=t_frames,
-            frequencies=partial_freqs,
-            amplitudes=partial_amps,
-        )
-
-        # Errors in Filtering
-        if note.partials == None:
-            note.invalidate(FilterReason.NO_PARTIALS_FOUND, step="find_partials")
+            # Errors in Filtering
+            if audio_type not in note.partials:
+                note.invalidate(FilterReason.NO_PARTIALS_FOUND, step="find_partials")
 
 
-def process_single_file(filepath, W, H, beta_max, plot, threshold, audio_type):
+def process_single_file(filepath, W, H, beta_max, plot, threshold, audio_types):
     """Worker function to process a single file"""
     # load track
     try:
@@ -405,14 +417,14 @@ def process_single_file(filepath, W, H, beta_max, plot, threshold, audio_type):
         return None
 
     # Process track
-    process_track_extract_partials(track, W, H, beta_max, audio_type, n_partials=25, plot=plot, threshold = threshold)
+    process_track_extract_partials(track, W, H, beta_max, audio_types, n_partials=25, plot=plot, threshold = threshold)
     track.save(filepath)
 
 
 def process_file_wrapper(args):
-    filepath, idx, total, W, H, beta_max, plot, threshold, audio_type = args
+    filepath, idx, total, W, H, beta_max, plot, threshold, audio_types = args
     print(f"\n[{idx}/{total}] Processing {filepath}")
-    return process_single_file(filepath, W, H, beta_max, plot, threshold, audio_type)
+    return process_single_file(filepath, W, H, beta_max, plot, threshold, audio_types)
 
 
 def main(config):
@@ -422,7 +434,8 @@ def main(config):
     beta_max = config.getfloat('params', 'beta_max')
     threshold = config.getint('params', 'threshold')
     plot = config.getboolean('params', 'plot')
-    audio_type = config.get('paths', 'audio_type')
+    audio_types_raw = config.get('paths', 'audio_types')
+    audio_types = [a.strip() for a in audio_types_raw.split(',')]
 
     # Collect all file paths
     filepaths = [
@@ -433,7 +446,7 @@ def main(config):
 
     total = len(filepaths)
     args_list = [
-        (filepath, idx, total, W, H, beta_max, plot, threshold, audio_type)
+        (filepath, idx, total, W, H, beta_max, plot, threshold, audio_types)
         for idx, filepath in enumerate(filepaths, 1)
     ]
 

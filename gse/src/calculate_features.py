@@ -51,22 +51,8 @@ def filter_betas(betas, beta_max):
 
     return filtered_values
 
-def spectral_centroid_feature(note, note_audio, W, H):
-    audio_data = note_audio.time
-    sr = note_audio.sampling_rate
-
-    # extract note audio from
-    onset_sample = int(note.attributes.onset * sr)
-    offset_sample = int(note.attributes.offset * sr)
-    if audio_data.ndim == 1:
-        note_audio = audio_data[onset_sample:offset_sample]
-    else:
-        note_audio = audio_data[0, onset_sample:offset_sample]  # Kanal
+def spectral_centroid_feature(note, note_audio, W, H, sr):
     preprocessed_audio, _ = note_audio_preprocess(note_audio, W, H)
-
-    # Or guard before assignment in process_track_extract_partials:
-    if note.features is None:
-        note.features = Features()
 
     """ Spectral Centroid """
     S = np.abs(np.fft.rfft(preprocessed_audio, n=W, axis=1)).T  # shape: (2049, 24)
@@ -107,7 +93,7 @@ def spectral_centroid_feature(note, note_audio, W, H):
         stats.kurtosis(sc, axis=1, nan_policy="omit"),
         np.apply_along_axis(kde_mode, axis=1, arr=sc),
     ])
-    note.features.spectral_centroid = sc_measures
+    return sc_measures
 
 def estimate_inharmonicity_coefficient_all_frets(partials, fret, min_partials=6):
     freqs = partials.frequencies  # (T, K)
@@ -279,7 +265,7 @@ def kde_mode(data):
     return x[np.argmax(kde(x))]
 
 def process_single_file(args):
-    filepath, beta_max, plot, threshold, W, H, audio_type = args
+    filepath, beta_max, plot, threshold, W, H, audio_types = args
 
     print(f"Processing {filepath}")
 
@@ -297,69 +283,92 @@ def process_single_file(args):
         print(f"Unexpected error loading {filepath}: {e}")
         return None
 
-    for note in track.valid_notes:
-        betas = estimate_inharmonicity_coefficient_all_frets(
-            note.partials,
-            note.attributes.fret
-        )
-        if len(betas) == 0:
-            note.invalidate(FilterReason.NO_BETAS, step="calculate_features")
-            continue
-
-        if note.features is None:
-            note.features = Features()
-
-        betas_filtered = filter_betas(betas, beta_max)
-        if len(betas_filtered) == 0:
-            note.invalidate(FilterReason.NO_BETAS_AFTER_FILTER, step="calculate_features")
-            continue
 
 
-        # todo: decide which betas I want to use
-        # betas_filtered = betas
-
-        # assign attributed f0 to features
-        note.features.f0 = note.attributes.pitch
-
-        median_beta = np.median(betas_filtered, axis=0)
-
-        betas_measures = np.array([
-            np.mean(betas_filtered, axis=0),
-            median_beta,
-            np.std(betas_filtered, axis=0),
-            np.var(betas_filtered, axis=0),
-            np.min(betas_filtered, axis=0),
-            np.max(betas_filtered, axis=0),
-            stats.skew(betas_filtered, axis=0),
-            stats.kurtosis(betas_filtered, axis=0),
-            kde_mode(betas_filtered),
-        ])
-
-
-        # spectral centroid
+    for audio_type in audio_types:
         audio_filepath = track.audio_paths[audio_type]
         note_audio = pf.io.read_audio(audio_filepath)
-        spectral_centroid_feature(note, note_audio, W, H)
+        audio_data = note_audio.time
+        sr = note_audio.sampling_rate
 
 
-        amp_deviation_measures, amp_decay_coefficients = relative_amplitude_deviations(note.partials) # (25,)
-        freq_deviation_measures = relative_freq_deviations(note.partials, median_beta)
 
-        # valid_slopes = np.isfinite(amp_decay_coefficients)
-        valid_partials = np.isfinite(amp_decay_coefficients)#.astype(int)
+        for note in track.valid_notes:
+            if not isinstance(note.features, dict):
+                note.features = {}
 
-        # write into note.features
-        note.features.beta = median_beta
-        note.features.betas_measures = betas_measures
+            if audio_type not in note.features:
+                note.features[audio_type] = Features()
 
-        note.features.valid_partials = valid_partials
-        note.features.rel_partial_amplitudes = amp_deviation_measures
-        note.features.rel_freq_deviations = freq_deviation_measures
-        note.features.amp_decay_coefficients = amp_decay_coefficients  # was on note, not note.features
-        note.features.fill_feature_vector()
+            betas = estimate_inharmonicity_coefficient_all_frets(
+                note.partials[audio_type],
+                note.attributes.fret
+            )
+            if len(betas) == 0:
+                note.invalidate(FilterReason.NO_BETAS, step="calculate_features")
+                continue
 
-        if note.features is None:
-            note.invalidate(FilterReason.NO_FEATURES, step="calculate_features")
+            betas = filter_betas(betas, beta_max)
+            if len(betas) == 0:
+                note.invalidate(FilterReason.NO_BETAS_AFTER_FILTER, step="calculate_features")
+                continue
+
+            # assign attributed f0 to features
+            note.features[audio_type].f0 = note.attributes.pitch
+
+            median_beta = np.median(betas, axis=0)
+
+            betas_measures = np.array([
+                np.mean(betas, axis=0),
+                median_beta,
+                np.std(betas, axis=0),
+                np.var(betas, axis=0),
+                np.min(betas, axis=0),
+                np.max(betas, axis=0),
+                stats.skew(betas, axis=0),
+                stats.kurtosis(betas, axis=0),
+                kde_mode(betas),
+            ])
+
+
+            """ Spectral Centroid (needs raw audio)"""
+            # extract note audio from
+            onset_sample = int(note.attributes.onset * sr)
+            offset_sample = int(note.attributes.offset * sr)
+
+            if audio_type == "hex_debleeded":
+                string_idx = note.attributes.string_index
+                if string_idx is None or not (0 <= string_idx < audio_data.shape[0]):
+                    note.invalidate(FilterReason.NO_STRING, step="find_partials")
+                    continue
+                note_audio = audio_data[string_idx, onset_sample:offset_sample]
+            else:
+                # mono or mixed signal — collapse to mono if needed
+                if audio_data.ndim == 1:
+                    note_audio = audio_data[onset_sample:offset_sample]
+                else:
+                    note_audio = audio_data[0, onset_sample:offset_sample]
+
+            # needs audio for calculation
+            sc_measures = spectral_centroid_feature(note, note_audio, W, H, sr)
+            note.features[audio_type].spectral_centroid = sc_measures
+
+
+            amp_deviation_measures, amp_decay_coefficients = relative_amplitude_deviations(note.partials[audio_type]) # (25,)
+            freq_deviation_measures = relative_freq_deviations(note.partials[audio_type], median_beta)
+
+            # valid_slopes = np.isfinite(amp_decay_coefficients)
+            valid_partials = np.isfinite(amp_decay_coefficients)#.astype(int)
+
+            # write into note.features
+            note.features[audio_type].beta = median_beta
+            note.features[audio_type].betas_measures = betas_measures
+
+            note.features[audio_type].valid_partials = valid_partials
+            note.features[audio_type].rel_partial_amplitudes = amp_deviation_measures
+            note.features[audio_type].rel_freq_deviations = freq_deviation_measures
+            note.features[audio_type].amp_decay_coefficients = amp_decay_coefficients  # was on note, not note.features
+            note.features[audio_type].fill_feature_vector()
 
 
     track.save(filepath)
@@ -374,7 +383,8 @@ def main(config):
     beta_max = config.getfloat('params', 'beta_max')
     threshold = config.getint('params', 'threshold')
     plot = config.getboolean('params', 'plot')
-    audio_type = config.get('paths', 'audio_type')
+    audio_types_raw = config.get('paths', 'audio_types')
+    audio_types = [a.strip() for a in audio_types_raw.split(',')]
 
     track_directory = config.get('paths', 'track_directory')
 
@@ -388,7 +398,7 @@ def main(config):
         if os.path.isfile(os.path.join(track_directory, filename))
     ]
 
-    args_list = [(fp, beta_max, plot, threshold, W,H, audio_type) for fp in filepaths]
+    args_list = [(fp, beta_max, plot, threshold, W,H, audio_types) for fp in filepaths]
 
     # Create pool and process files
     num_processes = mp.cpu_count() - 1  # Leave one core free

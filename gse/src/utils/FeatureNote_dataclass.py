@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 import numpy as np
 import math
 from enum import Enum
@@ -64,7 +64,8 @@ class FilterReason(Enum):
     MISMATCH_BETWEEN_STRINGS = "note assignment likely wring between strings due to bleed"
     NO_MATCH = "no matching note could be found between model output and ground truth"
     # find_partials.py
-    NO_HARMONIC_AUDIO = "no harmonic audio"
+    NO_NOTE_AUDIO = "no note audio found from onsets"
+    NO_HARMONIC_AUDIO = "no harmonic audio after extraction"
     HARMONIC_AUDIO_TOO_SHORT = "harmonic audio too short"
     NO_PARTIALS_FOUND = "no partials found"
     NO_NOTE = "houston we have a problem"
@@ -86,8 +87,8 @@ class FeatureNote:
     filter_step: Optional[str] = None
 
     attributes: Optional[Attributes] = None
-    features: Optional[Features] = None
-    partials: Optional[Partials] = None
+    features: Dict[str, Features] = field(default_factory=dict)
+    partials: Dict[str, Partials] = field(default_factory=dict)  # keyed by audio_type
     string_probs: Optional[np.ndarray] = None
 
     def invalidate(self, reason: FilterReason, step: str) -> None:

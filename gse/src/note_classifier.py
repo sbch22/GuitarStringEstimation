@@ -350,13 +350,14 @@ def grouped_permutation_importance(model, X, y, groups, n_repeats=5, scoring="ac
 
 
 
-def main():
+def main(subset):
     # load configs
-    config_test = ConfigParser()
-    config_test.read('config_test.ini')
-
-    config_train = ConfigParser()
-    config_train.read('config_train.ini')
+    if subset == 'comp':
+        config_test = ConfigParser()
+        config_test.read('config_test_comp.ini')
+    elif subset == 'solo':
+        config_test = ConfigParser()
+        config_test.read('config_test_solo.ini')
 
     find_partials.main(
         config_test
@@ -367,6 +368,8 @@ def main():
     )
 
     track_directory = config_test.get('paths', 'track_directory')
+    audio_types_raw = config_test.get('paths', 'audio_types')
+    audio_types = [a.strip() for a in audio_types_raw.split(',')]
 
     SVM = joblib.load("svm_pipeline.joblib")
 
@@ -400,79 +403,60 @@ def main():
         # reset centroid tracker per track
         centroid_tracker = FretboardCentroid()
 
-        notes_by_track = defaultdict(list)
-        track_feature_vectors = []
-        track_labels = []
-
         for note in track.notes:
             all_notes.append(note)
 
-        for note in track.valid_notes:
-            track_feature_vectors.append(note.features.feature_vector)
-            track_labels.append(note.attributes.string_index)  # GT
-            notes_by_track[os.path.basename(filepath)].append(note)
+        for audio_type in audio_types:
+            track_fvs_for_type = []
+            track_notes_for_type = []
+            for note in track.valid_notes:
+                if audio_type not in note.features:
+                    continue
+                fv = note.features[audio_type].feature_vector
+                if fv is None:
+                    continue
+                track_fvs_for_type.append(fv)
+                track_notes_for_type.append(note)
+                all_features.append(fv)
+                all_labels.append(note.attributes.string_index)
+                all_valid_notes.append(note)
 
-            fv = note.features.feature_vector
-            all_features.append(fv)
-            all_labels.append(note.attributes.string_index)
-            all_valid_notes.append(note)
+            if not track_fvs_for_type:
+                continue
 
-        if not track_feature_vectors:
-            print(f"  Skipping — no valid notes found. Probably no model output.")
-            continue
-
-        """ track logic"""
-        track_probs = SVM.predict_proba(np.stack(track_feature_vectors))
-        track_predictions = plausibility_filter(track_probs, track.valid_notes, centroid_tracker)
-        all_predictions.extend(track_predictions)
-
+            track_predictions = SVM.predict_proba(np.stack(track_fvs_for_type))
+            track_predictions = plausibility_filter(track_predictions, track_notes_for_type, centroid_tracker)
+            all_predictions.extend(track_predictions)
 
 
     """ Filter analysis testSet"""
     filter_analysis(all_notes)
 
-
-
-    """ Permutation """
-    FX_test = np.stack(all_features)
-    labels_test = np.array(all_labels)
     string_labels = [0, 1, 2, 3, 4, 5]
 
-    sample_fv = all_valid_notes[0].features
-    feature_groups = get_feature_groups(sample_fv)
-
-    # Per-segment K values for the (6, K) measure arrays only
-    measure_segs_with_k = {
-        "rel_partial_amplitudes": sample_fv.rel_partial_amplitudes.shape[1],  # 25
-        "rel_freq_deviations": sample_fv.rel_freq_deviations.shape[1],  # 24
-    }
-    stat_groups = get_stat_groups(feature_groups, measure_segs_with_k)
-
-    # Run both
-    segment_importance = grouped_permutation_importance(SVM, FX_test, labels_test, feature_groups, n_repeats=5)
-    stat_importance = grouped_permutation_importance(SVM, FX_test, labels_test, stat_groups, n_repeats=5)
-
-    for name, res in sorted(segment_importance.items(), key=lambda x: -x[1]["mean"]):
-        print(f"{name:30s}  importance: {res['mean']:.4f} ± {res['std']:.4f}")
-
-    for name, res in sorted(stat_importance.items(), key=lambda x: -x[1]["mean"]):
-        print(f"{name:30s}  importance: {res['mean']:.4f} ± {res['std']:.4f}")
-
-
-    partial_groups = get_partial_groups(feature_groups, sample_fv)
-    # Optional: nur erste N Partialtöne analysieren
-    N = 25
-    partial_groups_top = {k: v for k, v in partial_groups.items() if k < N}
-
-    partial_importance = grouped_permutation_importance(
-        SVM, FX_test, labels_test, partial_groups_top, n_repeats=3
-    )
-
-    print("\nImportance by partial index:")
-    for k, res in sorted(partial_importance.items(), key=lambda x: -x[1]["mean"]):
-        n_features = len(partial_groups[k])
-        print(f"  Partial {k:2d}  ({n_features} features):  {res['mean']:.4f} ± {res['std']:.4f}")
-
+    # """ Permutation """
+    # FX_test = np.stack(all_features)
+    # labels_test = np.array(all_labels)
+    #
+    # sample_fv = all_valid_notes[0].features[audio_types[0]]
+    # feature_groups = get_feature_groups(sample_fv)
+    #
+    # # Per-segment K values for the (6, K) measure arrays only
+    # measure_segs_with_k = {
+    #     "rel_partial_amplitudes": sample_fv.rel_partial_amplitudes.shape[1],  # 25
+    #     "rel_freq_deviations": sample_fv.rel_freq_deviations.shape[1],  # 24
+    # }
+    # stat_groups = get_stat_groups(feature_groups, measure_segs_with_k)
+    #
+    # # Run both
+    # segment_importance = grouped_permutation_importance(SVM, FX_test, labels_test, feature_groups, n_repeats=5)
+    # stat_importance = grouped_permutation_importance(SVM, FX_test, labels_test, stat_groups, n_repeats=5)
+    #
+    # for name, res in sorted(segment_importance.items(), key=lambda x: -x[1]["mean"]):
+    #     print(f"{name:30s}  importance: {res['mean']:.4f} ± {res['std']:.4f}")
+    #
+    # for name, res in sorted(stat_importance.items(), key=lambda x: -x[1]["mean"]):
+    #     print(f"{name:30s}  importance: {res['mean']:.4f} ± {res['std']:.4f}")
 
 
     """ Overall (tracks) """
@@ -485,4 +469,7 @@ def main():
     print("\n\n Success! Classification done.")
 
 if __name__ == "__main__":
-    main()
+    subset_solo = 'solo'
+    subset_comp = 'comp'
+    main(subset_solo)
+    # main(subset2)
