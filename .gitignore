@@ -20,3 +20,5 @@ data/guitarset_yourmt3_16k/audio_mono-pickup_mix/
 gse/noteData/
 gse/logs/**
 
+*.npy
+*.joblib
