@@ -124,7 +124,7 @@ def plot_beta_distributions(betas: Dict[int, List[float]], beta_max) -> List[np.
 def main():
     # read config
     config = ConfigParser()
-    config.read('config_train.ini')
+    config.read('config_train_GuitarSet.ini')
     beta_max = config.getfloat('train', 'beta_max')
     track_directory = config.get('paths', 'track_directory')
     print(f"Beta Max: {beta_max}")

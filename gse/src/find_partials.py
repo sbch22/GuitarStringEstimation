@@ -84,7 +84,7 @@ def instantaneous_frequency(frames, W, H, sr, window):
     return inst_freq, inst_amp
 
 
-def partial_picker(inst_freq, inst_amp, f0, k_f0, beta_max, n_partials, sr, W, threshold):
+def partial_picker(inst_freq, inst_amp, f0, beta_max, n_partials, sr, W, threshold):
     n_frames, n_bins = inst_freq.shape
 
     # Outputs
@@ -292,8 +292,6 @@ def process_track_extract_partials(track, W, H, beta_max, audio_types, n_partial
             onset_sample = int(note.attributes.onset * sr)
             offset_sample = int(note.attributes.offset * sr)
 
-            k_f0 = int(note.attributes.pitch * W / sr)
-
             audio_data = audio.time  # shape: (6, N_samples)
 
             if audio_type == "hex_debleeded":
@@ -337,7 +335,6 @@ def process_track_extract_partials(track, W, H, beta_max, audio_types, n_partial
                 inst_freq,
                 inst_amp,
                 f0=note.attributes.pitch,
-                k_f0=k_f0,
                 beta_max=beta_max,
                 n_partials=n_partials,
                 sr=sr,
@@ -423,7 +420,7 @@ def process_single_file(filepath, W, H, beta_max, plot, threshold, audio_types):
 
 def process_file_wrapper(args):
     filepath, idx, total, W, H, beta_max, plot, threshold, audio_types = args
-    print(f"\n[{idx}/{total}] Processing {filepath}")
+    print(f"\n[{idx}/{total}] find_partials ... {filepath}")
     return process_single_file(filepath, W, H, beta_max, plot, threshold, audio_types)
 
 
@@ -441,6 +438,7 @@ def main(config):
     filepaths = [
         os.path.join(track_directory, filename)
         for filename in os.listdir(track_directory)
+        if filename.endswith(".pkl")
         if os.path.isfile(os.path.join(track_directory, filename))
     ]
 
@@ -459,6 +457,6 @@ def main(config):
 
 if __name__ == "__main__":
     config = ConfigParser()
-    config.read('config_train.ini')
+    config.read('config_train_GuitarSet.ini')
 
     main(config)

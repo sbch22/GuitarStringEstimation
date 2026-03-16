@@ -354,10 +354,16 @@ def main(subset):
     # load configs
     if subset == 'comp':
         config_test = ConfigParser()
-        config_test.read('config_test_comp.ini')
+        config_test.read('configs/config_test_comp.ini')
     elif subset == 'solo':
         config_test = ConfigParser()
-        config_test.read('config_test_solo.ini')
+        config_test.read('configs/config_test_solo.ini')
+    elif subset == 'GOAT':
+        config_test = ConfigParser()
+        config_test.read('configs/config_test_GOAT.ini')
+    elif subset == 'single_note_IDMT':
+        config_test = ConfigParser()
+        config_test.read('configs/config_test_single_note_IDMT.ini')
 
     find_partials.main(
         config_test
@@ -385,6 +391,7 @@ def main(subset):
     filepaths = [
         os.path.join(track_directory, filename)
         for filename in os.listdir(track_directory)
+        if filename.endswith(".pkl")
         if os.path.isfile(os.path.join(track_directory, filename))
     ]
 
@@ -395,7 +402,7 @@ def main(subset):
     all_valid_notes = []
 
     for i, filepath in enumerate(filepaths, 1):
-        print(f"\n[{i}/{len(filepaths)}] Processing {filepath}")
+        print(f"\n[{i}/{len(filepaths)}] Classification:  {filepath}")
 
         with open(filepath, "rb") as f:
             track = pickle.load(f)
@@ -458,7 +465,6 @@ def main(subset):
     # for name, res in sorted(stat_importance.items(), key=lambda x: -x[1]["mean"]):
     #     print(f"{name:30s}  importance: {res['mean']:.4f} ± {res['std']:.4f}")
 
-
     """ Overall (tracks) """
     results = evaluate_classification(all_labels, np.argmax(all_predictions, axis=1), string_labels=string_labels)
 
@@ -469,7 +475,13 @@ def main(subset):
     print("\n\n Success! Classification done.")
 
 if __name__ == "__main__":
+    # test on the following subsets:
     subset_solo = 'solo'
     subset_comp = 'comp'
+    subset_GOAT = 'GOAT'
+    subset_single_note_IDMT = 'single_note_IDMT'
+
     main(subset_solo)
-    # main(subset2)
+    main(subset_comp)
+    main(subset_GOAT)
+    main(subset_single_note_IDMT)

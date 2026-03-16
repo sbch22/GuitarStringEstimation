@@ -28,13 +28,17 @@ import find_partials
 from utils.Track_dataclass import filter_analysis
 
 
-def main():
+def main(subset):
     # load configs
-    config_test = ConfigParser()
-    config_test.read('config_test_comp.ini')
-
-    config_train = ConfigParser()
-    config_train.read('config_train.ini')
+    if subset == 'GuitarSet':
+        config_train = ConfigParser()
+        config_train.read('configs/config_train_GuitarSet.ini')
+    elif subset == 'IDMT':
+        config_train = ConfigParser()
+        config_train.read('configs/config_train_IDMT.ini')
+    elif subset == 'single_note_IDMT':
+        config_train = ConfigParser()
+        config_train.read('configs/config_train_single_note_IDMT.ini')
 
     # --- Step 1: Find partials ---
     find_partials.main(config_train)
@@ -96,8 +100,8 @@ def main():
         # ('svm', LinearSVC(C=1.0, max_iter=2000))               # ~10-50x faster, linear only
         # ('svm', SGDClassifier(loss='hinge', max_iter=1000))     # fastest, needs more tuning
     ])
-
-    # ── Quick CV estimate before full grid search ────────────────────────────────
+    #
+    # ── Cross Validation
     print("Running cross-validation...")
     cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
     results = cross_validate(
@@ -109,37 +113,36 @@ def main():
     print(f"CV Accuracy:  {results['test_accuracy'].mean():.3f} ± {results['test_accuracy'].std():.3f}")
     print(f"CV F1 (macro): {results['test_f1_macro'].mean():.3f} ± {results['test_f1_macro'].std():.3f}")
 
-    # ── Grid Search ─────────────────────────────────────────────────────────────
-    # param_grid = {
-    #     'svm__C': [0.1, 1, 10, 100],
-    #     'svm__gamma': ['scale', 'auto', 0.001, 0.01]
-    # }
+    # ── Grid Search
+    param_grid = {
+        'svm__C': [0.1, 1, 10, 100],
+        'svm__gamma': ['scale', 'auto', 0.001, 0.01]
+    }
 
-    # print("\nRunning GridSearchCV...")
-    # grid = GridSearchCV(
-    #     SVM,
-    #     param_grid,
-    #     cv=cv,
-    #     scoring='accuracy',
-    #     n_jobs=-1,  # ← parallelizes all 4×4×5 = 80 fits across all cores
-    #     verbose=2  # shows progress
-    # )
-    # grid.fit(FX, labels)
+    print("\nRunning GridSearchCV...")
+    grid = GridSearchCV(
+        SVM,
+        param_grid,
+        cv=cv,
+        scoring='accuracy',
+        n_jobs=-1,  # ← parallelizes all 4×4×5 = 80 fits across all cores
+        verbose=2  # shows progress
+    )
+    grid.fit(FX, labels)
 
-    # print(f"Best params: {grid.best_params_}")
-    # print(f"Best CV accuracy: {grid.best_score_:.3f}")
-    #
-    # # Das beste Modell ist grid.best_estimator_ — das speicherst du
-    # joblib.dump(grid.best_estimator_, "svm_pipeline.joblib")
+    print(f"Best params: {grid.best_params_}")
+    print(f"Best CV accuracy: {grid.best_score_:.3f}")
 
-    # Final fit on all data
-    SVM.fit(FX, labels)
-    joblib.dump(SVM, "svm_pipeline.joblib")
+    # Das beste Modell ist grid.best_estimator_ — das speicherst du
+    joblib.dump(grid.best_estimator_, "svm_pipeline_IDMT_single_note.joblib")
 
-
-
-
+    # # Final fit on all data
+    # SVM.fit(FX, labels)
+    # joblib.dump(SVM, "svm_pipeline.joblib")
 
 
 if __name__ == "__main__":
-    main()
+    subset_single_note_IDMT = 'single_note_IDMT'
+    subset_GuitarSet = 'GuitarSet'
+
+    main(subset_single_note_IDMT)

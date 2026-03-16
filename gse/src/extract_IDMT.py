@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 import random
 
 def main():
-    data_dir = '../../data/Custom_Guitar_Dataset/single_notes/IDMT_SMT_GUITAR_V2_cut/dataset2/'
+    data_dir = '../../data/IDMT/dataset2/'
     save_dir = '../noteData/single_note/'
 
     audio_dir = os.path.join(data_dir, 'audio')

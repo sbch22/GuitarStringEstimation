@@ -73,7 +73,11 @@ class Track:
     @property
     def valid_notes(self) -> List[FeatureNote]:
         """All notes that are currently marked valid."""
-        return [n for n in self.notes if n.valid and n.origin == 'model']
+        if self.dataset == "single_note":
+            return [n for n in self.notes]
+        else:
+            return [n for n in self.notes if n.valid and n.origin == 'model']
+
 
     # ── persistence ───────────────────────────────────────────────────────────
     def save(self, path: str) -> None:
@@ -209,6 +213,7 @@ class Track:
                 pred.attributes.string_index = matched_gt.attributes.string_index
                 matched_gt.match = True
             else:
+                # matched_gt.invalidate(FilterReason.NO_MATCH, step="match_notes")
                 pred.invalidate(FilterReason.NO_MATCH, step="match_notes")
 
     @staticmethod

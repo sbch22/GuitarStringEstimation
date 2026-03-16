@@ -40,6 +40,8 @@ import numpy as np
 import pyfar as pf
 from collections import defaultdict
 from configparser import ConfigParser
+import gse.src.utils.FeatureNote_dataclass as FeatureNote_dataclass
+sys.modules["utils.FeatureNote_dataclass"] = FeatureNote_dataclass
 
 
 
@@ -295,7 +297,6 @@ def process_GOAT_track(track, model, audio_type):
             offset=note.offset,
             velocity=note.velocity,
             pitch=round(440 * 2 ** ((note.pitch - 69) / 12), 3)
-
         )
 
         # Wrap it into a FeatureNote
@@ -430,13 +431,13 @@ def main(track_directory, audio_type):
         with open(filepath, "rb") as f:
             track = pickle.load(f)
 
-        # TODO: Call other process track function for other Datasets without hex-recordings,
-        #  maybe the audio path kex (eg. hex) needs to be in config
-
         # Process the file with debug mode setting
-        process_GuitarSet_track(track, model)
+        if "GuitarSet" in filepath:
+            process_GuitarSet_track(track, model)
 
-        # process_GOAT_track(track, model, audio_type)
+        elif "GOAT" in filepath:
+            process_GOAT_track(track, model, audio_type)
+
 
         # save_path = os.path.join(track_directory, 'dev', filename)
         save_path = os.path.join(track_directory, filename)
@@ -449,11 +450,10 @@ def main(track_directory, audio_type):
         # if file_counter >= files_to_analyze: break
 
 if __name__ == "__main__":
-    # main('../noteData/GuitarSet/train/')
-    main('../noteData/GuitarSet/test/solo/', audio_type="hex_debleeded")
+    # TODO: choose which test and train sets to call the classification upon
+    # main('../noteData/GuitarSet/train/', audio_type="hex_debleeded")
+    # main('../noteData/GuitarSet/test/solo/', audio_type="hex_debleeded")
+    # main('../noteData/GuitarSet/test/comp/', audio_type="hex_debleeded")
 
-
-    # config = ConfigParser()
-    # config.read('config_YMT3_inference.ini')
-
-    # main( track_directory='../noteData/GOAT/', audio_type="clean")
+    main( track_directory='../noteData/GOAT/test/', audio_type="clean")
+    main( track_directory='../noteData/GOAT/train/', audio_type="clean")

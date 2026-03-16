@@ -8,6 +8,7 @@ from gse.src.utils.Track_dataclass import Track
 import pyfar as pf
 import glob
 import re
+import random
 
 def create_track_from_DadaGP(DadaGP_file: str, track_id: str) -> Track:
     with open(DadaGP_file, "r") as f:
@@ -30,7 +31,7 @@ def create_track_from_DadaGP(DadaGP_file: str, track_id: str) -> Track:
     SECONDS_PER_TICK = 60.0 / (tempo * 3840)
 
     STANDARD_TUNING = {
-        6: 40, 5: 45, 4: 50, 3: 55, 2: 59, 1: 64
+        0: 40, 1: 45, 2: 50, 3: 55, 4: 59, 5: 64
     }
 
     current_tick = 0
@@ -49,7 +50,7 @@ def create_track_from_DadaGP(DadaGP_file: str, track_id: str) -> Track:
             string = int(m.group(1))
             fret = int(m.group(2))
 
-            open_midi = STANDARD_TUNING[string] + downtune
+            open_midi = STANDARD_TUNING[string - 1] + downtune
             midi = open_midi + fret
             pitch_hz = (440 / 32) * (2 ** ((midi - 9) / 12))
 
@@ -85,6 +86,7 @@ def create_track_from_DadaGP(DadaGP_file: str, track_id: str) -> Track:
                 feature_notes.append(
                     FeatureNote(
                         attributes=attr,
+                        valid=True,
                         features=Features(),
                         origin="gt",
                         dataset="GOAT"
@@ -131,25 +133,38 @@ def preprocess_dataset(data_dir, save_dir):
         if os.path.isdir(d)
     ])
 
-
+    # Collect all valid tracks first
+    valid_dirs = []
     for dir in dirs:
-        # Convert all annotations to notes and note events
         GOAT_id = os.path.basename(dir)
+        track_DadaGP = os.path.join(dir, f'{GOAT_id}.txt')
+        if os.path.exists(track_DadaGP):
+            valid_dirs.append((dir, GOAT_id))
 
+    # Split into test (32 random) and train (rest)
+    random.shuffle(valid_dirs)
+    test_dirs = set(d[0] for d in valid_dirs[:32])
+
+    # Create subdirectories
+    train_dir = os.path.join(save_dir, 'train')
+    test_dir = os.path.join(save_dir, 'test')
+    os.makedirs(train_dir, exist_ok=True)
+    os.makedirs(test_dir, exist_ok=True)
+
+    for dir, GOAT_id in valid_dirs:
         track_DadaGP = os.path.join(dir, f'{GOAT_id}.txt')
 
-        if os.path.exists(track_DadaGP):
-            track = create_track_from_DadaGP(track_DadaGP, GOAT_id)
-            if track is None:
-                print(f"Skipping {GOAT_id} (downtuned)")
-                continue
+        track = create_track_from_DadaGP(track_DadaGP, GOAT_id)
+        if track is None:
+            print(f"Skipping {GOAT_id} (downtuned)")
+            continue
 
-            load_track_audio_paths(track, dir) # load all needed audio files
+        load_track_audio_paths(track, dir)
 
-            track_filename = GOAT_id + '.pkl'
-            save_path = os.path.join(save_dir, track_filename)
-            track.save(save_path)
-            print(f'Saved track object: {save_path}')
+        split = 'test' if dir in test_dirs else 'train'
+        save_path = os.path.join(save_dir, split, GOAT_id + '.pkl')
+        track.save(save_path)
+        print(f'[{split}] Saved track object: {save_path}')
 
 def main():
     data_dir = '../../data/GOAT/data/'

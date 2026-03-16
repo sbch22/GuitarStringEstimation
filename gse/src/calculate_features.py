@@ -267,7 +267,7 @@ def kde_mode(data):
 def process_single_file(args):
     filepath, beta_max, plot, threshold, W, H, audio_types = args
 
-    print(f"Processing {filepath}")
+    print(f"Calculating Features {filepath}")
 
     # load track
     try:
@@ -308,10 +308,10 @@ def process_single_file(args):
                 note.invalidate(FilterReason.NO_BETAS, step="calculate_features")
                 continue
 
-            betas = filter_betas(betas, beta_max)
-            if len(betas) == 0:
-                note.invalidate(FilterReason.NO_BETAS_AFTER_FILTER, step="calculate_features")
-                continue
+            # betas = filter_betas(betas, beta_max)
+            # if len(betas) == 0:
+            #     note.invalidate(FilterReason.NO_BETAS_AFTER_FILTER, step="calculate_features")
+            #     continue
 
             # assign attributed f0 to features
             note.features[audio_type].f0 = note.attributes.pitch
@@ -395,6 +395,7 @@ def main(config):
     filepaths = [
         os.path.join(track_directory, filename)
         for filename in os.listdir(track_directory)
+        if filename.endswith(".pkl")
         if os.path.isfile(os.path.join(track_directory, filename))
     ]
 
@@ -412,6 +413,6 @@ def main(config):
 
 if __name__ == "__main__":
     config = ConfigParser()
-    config.read('config_train.ini')
+    config.read('config_train_GuitarSet.ini')
 
     main(config)
