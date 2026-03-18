@@ -11,10 +11,18 @@ from configparser import ConfigParser
 import pyfar as pf
 import librosa as lib
 from scipy import stats
+from scipy.signal import medfilt
+from scipy.signal import find_peaks
+import matplotlib.gridspec as gridspec
+from matplotlib.colors import to_rgba
+
+
 
 from utils.FeatureNote_dataclass import FilterReason
 from utils.FeatureNote_dataclass import Features
+from gse.src.utils.FeatureNote_dataclass import Partials
 from find_partials import note_audio_preprocess
+
 
 """ FEATURES """
 def filter_betas(betas, beta_max):
@@ -51,12 +59,9 @@ def filter_betas(betas, beta_max):
 
     return filtered_values
 
-def spectral_centroid_feature(note, note_audio, W, H, sr):
-    preprocessed_audio, _ = note_audio_preprocess(note_audio, W, H)
-
+def spectral_centroid_feature(preprocessed_audio, W, H, sr):
     """ Spectral Centroid """
-    S = np.abs(np.fft.rfft(preprocessed_audio, n=W, axis=1)).T  # shape: (2049, 24)
-    sc = lib.feature.spectral_centroid(S=S, sr=sr, n_fft=W)
+    sc = lib.feature.spectral_centroid(y=preprocessed_audio, sr=sr, n_fft=W, hop_length=H)
 
     median = np.nanmedian(
         sc, axis=1
@@ -95,49 +100,6 @@ def spectral_centroid_feature(note, note_audio, W, H, sr):
     ])
     return sc_measures
 
-def estimate_inharmonicity_coefficient_all_frets(partials, fret, min_partials=6):
-    freqs = partials.frequencies  # (T, K)
-    T, K = freqs.shape
-
-    betas = np.full(T, np.nan)
-    k_full = np.arange(1, K + 1)
-
-    for i in range(T):
-        f_k = freqs[i]
-
-        valid = np.isfinite(f_k)
-        if np.sum(valid) < min_partials:
-            continue
-
-        k = k_full[valid]
-        f = f_k[valid]
-
-        # fundamental estimate
-        f0 = f[0]
-
-        # Eq. (15): ck
-        c_k = f - k * f0
-
-        # Eq. (16): polynomial fit
-        X = np.vstack([k**3, k, np.ones_like(k)]).T
-
-        try:
-            a, b, c = np.linalg.lstsq(X, c_k, rcond=None)[0]
-
-            # Eq. (17): beta
-            beta_n = 2 * a / (f0 + b)
-
-            # eig. beta0
-            beta = beta_n * 2**(-fret/6)
-
-            # sanity checks
-            if np.isfinite(beta) and beta > 0:
-                betas[i] = beta
-
-        except np.linalg.LinAlgError:
-            continue
-
-    return betas
 
 def relative_amplitude_deviations(partials):
     amps = partials.amplitudes  # (T, K)
@@ -253,16 +215,194 @@ def relative_freq_deviations(partials, beta):
 
     return freq_deviation_measures
 
+
 def kde_mode(data):
     data = np.asarray(data, dtype=float)
     data = data[np.isfinite(data)]
-    if len(data) < 2:
+
+    # not enough data
+    if len(data) < 5:
         return np.nan
-    if np.std(data) == 0:       # alle Werte identisch → Modus ist der Wert selbst
-        return data[0]
-    kde = stats.gaussian_kde(data)
-    x = np.linspace(min(data), max(data), 1000)
-    return x[np.argmax(kde(x))]
+
+    # not enough variation
+    if np.unique(data).size < 3:
+        return np.nan
+
+    # near-zero variance
+    if np.std(data) < 1e-10:
+        return data.mean()
+
+    try:
+        kde = stats.gaussian_kde(data)
+        x = np.linspace(data.min(), data.max(), 1000)
+        return x[np.argmax(kde(x))]
+    except np.linalg.LinAlgError:
+        return np.nan
+
+
+def estimate_inharmonicity_coefficient_all_frets(partials, fret, min_partials=4):
+    freqs = partials.frequencies  # (T, K)
+    T, K = freqs.shape
+
+    betas = np.full(T, np.nan)
+    betas0 = np.full(T, np.nan)
+
+    k_full = np.arange(1, K + 1)
+
+    for i in range(T):
+        f_k = freqs[i]
+
+        valid = np.isfinite(f_k)
+        if np.sum(valid) < min_partials:
+            continue
+
+        k = k_full[valid]
+        f = f_k[valid]
+
+        if k[0] != 1:
+            continue  # can't reliably estimate f0 without the fundamental
+        f0 = f[0]
+
+        # Eq. (15): ck
+        c_k = f - k * f0
+
+        # Eq. (16): polynomial fit
+        X = np.vstack([k**3, k, np.ones_like(k)]).T
+
+        try:
+            a, b, c = np.linalg.lstsq(X, c_k, rcond=None)[0]
+
+            # Eq. (17): beta
+            beta = 2 * a / (f0 + b)
+
+            # eig. beta0
+            beta0 = beta * 2**(-fret/6)
+
+            # sanity checks
+            if np.isfinite(beta) and beta > 0:
+                betas[i] = beta
+            # sanity checks
+            if np.isfinite(beta0) and beta0 > 0:
+                betas0[i] = beta0
+
+        except np.linalg.LinAlgError:
+            continue
+
+    return betas, betas0
+
+
+def _hz_to_bin_range(
+    f_center: float,
+    half_width_hz: float,
+    W: int,
+    sr: int,
+    bin_nyquist: int,
+) -> tuple[int, int]:
+    """
+    Translate (f_center ± half_width_hz) to a safe integer bin range.
+    Guarantees at least 1 bin of search room and clamps to [0, bin_nyquist].
+    """
+    hz_per_bin = sr / W
+    b_lo = max(int(np.floor((f_center - half_width_hz) / hz_per_bin)), 0)
+    b_hi = min(int(np.ceil ((f_center + half_width_hz) / hz_per_bin)), bin_nyquist)
+
+    if b_hi <= b_lo:
+        b_lo = max(b_lo - 1, 0)
+        b_hi = min(b_lo + 2, bin_nyquist)
+
+    return b_lo, b_hi
+
+
+def find_partials(
+    fft_frames: np.ndarray,
+    f0_guess: float,
+    beta: float,
+    sr: int,
+    W: int,
+    n_partials: int,
+    search_hz: float = 10.0,
+    amp_threshold: float = 0.1,
+    partial_amp_threshold_dB: float = 0.0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.array]:
+
+    n_frames, n_bins = fft_frames.shape
+    bin_nyquist = W // 2
+
+    search_windows = []
+
+    fft_mag   = np.abs(fft_frames)
+    freq_axis = np.arange(n_bins, dtype=float) * sr / W
+    harmonic_orders = np.arange(1, n_partials + 1)
+
+    partial_freqs = np.full((n_frames, n_partials), np.nan, dtype=float)
+    partial_amps  = np.full((n_frames, n_partials), np.nan, dtype=float)
+    partial_bins  = np.full((n_frames, n_partials), -1,    dtype=int)
+
+    frame_max = fft_mag.max()
+    if frame_max == 0.0:
+        return partial_freqs, partial_amps, partial_bins   # nothing to find
+
+    fft_norm = fft_mag / (fft_mag.max(axis=1, keepdims=True) + 1e-12)
+    fft_norm[fft_norm < amp_threshold] = 0.0
+
+    # ------------------------------------------------------------------
+    # Stage 1 — refine f0 per frame
+    # ------------------------------------------------------------------
+    b_lo_f0, b_hi_f0 = _hz_to_bin_range(f0_guess, search_hz, W, sr, bin_nyquist)
+    f0_per_frame = np.full(n_frames, np.nan, dtype=float)
+
+    for t in range(n_frames):
+        region = fft_norm[t, b_lo_f0 : b_hi_f0 + 1]
+        if region.size == 0:
+            continue
+
+        peaks_local, _ = find_peaks(region, height=0.0)
+        if peaks_local.size == 0:
+            continue
+
+        best_local = peaks_local[np.argmax(region[peaks_local])]
+        f0_per_frame[t] = freq_axis[b_lo_f0 + best_local]
+
+    # ------------------------------------------------------------------
+    # Stage 2 — find each partial using the per-frame f0
+    # ------------------------------------------------------------------
+    for t in range(n_frames):                          # ← single loop, correct indent
+        f0_t = f0_per_frame[t]
+        if np.isnan(f0_t):
+            continue
+
+        for p_idx, k in enumerate(harmonic_orders):
+            f_k = k * f0_t * np.sqrt(1.0 + beta * float(k) ** 2)
+            if f_k >= sr / 2.0:
+                break
+            elif np.isnan(f_k):
+                continue
+
+
+            b_lo, b_hi  = _hz_to_bin_range(f_k, search_hz, W, sr, bin_nyquist)
+            amp_region  = fft_norm[t, b_lo : b_hi + 1]
+            freq_region = freq_axis[b_lo : b_hi + 1]
+
+            if amp_region.size == 0:
+                continue
+
+            peaks_local, _ = find_peaks(amp_region, height=0.0)
+
+            if peaks_local.size == 0:
+                continue
+
+            # choose peak closest to predicted frequency
+            best_local = peaks_local[np.argmax(amp_region[peaks_local])]
+
+            partial_freqs[t, p_idx] = float(freq_region[best_local])
+            partial_amps [t, p_idx] = 20.0 * np.log10(float(amp_region[best_local]) + 1e-12)
+            partial_bins [t, p_idx] = b_lo + best_local
+
+            search_windows.append((t, f_k, freq_axis[b_lo], freq_axis[b_hi]))
+
+    return partial_freqs, partial_amps, partial_bins, search_windows
+
+
 
 def process_single_file(args):
     filepath, beta_max, plot, threshold, W, H, audio_types = args
@@ -283,58 +423,24 @@ def process_single_file(args):
         print(f"Unexpected error loading {filepath}: {e}")
         return None
 
-
-
     for audio_type in audio_types:
         audio_filepath = track.audio_paths[audio_type]
-        note_audio = pf.io.read_audio(audio_filepath)
-        audio_data = note_audio.time
-        sr = note_audio.sampling_rate
-
-
+        note_signal = pf.io.read_audio(audio_filepath)
+        note_signal = pf.dsp.normalize(note_signal)
+        sr = note_signal.sampling_rate
 
         for note in track.valid_notes:
             if not isinstance(note.features, dict):
                 note.features = {}
-
             if audio_type not in note.features:
                 note.features[audio_type] = Features()
 
-            betas = estimate_inharmonicity_coefficient_all_frets(
-                note.partials[audio_type],
-                note.attributes.fret
-            )
-            if len(betas) == 0:
-                note.invalidate(FilterReason.NO_BETAS, step="calculate_features")
-                continue
-
-            # betas = filter_betas(betas, beta_max)
-            # if len(betas) == 0:
-            #     note.invalidate(FilterReason.NO_BETAS_AFTER_FILTER, step="calculate_features")
-            #     continue
-
-            # assign attributed f0 to features
-            note.features[audio_type].f0 = note.attributes.pitch
-
-            median_beta = np.median(betas, axis=0)
-
-            betas_measures = np.array([
-                np.mean(betas, axis=0),
-                median_beta,
-                np.std(betas, axis=0),
-                np.var(betas, axis=0),
-                np.min(betas, axis=0),
-                np.max(betas, axis=0),
-                stats.skew(betas, axis=0),
-                stats.kurtosis(betas, axis=0),
-                kde_mode(betas),
-            ])
-
-
-            """ Spectral Centroid (needs raw audio)"""
+            """ audio preprocessing """
             # extract note audio from
             onset_sample = int(note.attributes.onset * sr)
             offset_sample = int(note.attributes.offset * sr)
+
+            audio_data = note_signal.time  # shape: (6, N_samples)
 
             if audio_type == "hex_debleeded":
                 string_idx = note.attributes.string_index
@@ -349,19 +455,158 @@ def process_single_file(args):
                 else:
                     note_audio = audio_data[0, onset_sample:offset_sample]
 
-            # needs audio for calculation
-            sc_measures = spectral_centroid_feature(note, note_audio, W, H, sr)
+            if note_audio is None:
+                note.invalidate(FilterReason.NO_NOTE_AUDIO, step="find_partials")
+                continue
+
+            # call extraction of harmonic audio
+            harmonic_audio = note_audio
+            # harmonic_audio, intra_onsets = extract_harmonic_note_audio(note_audio, W, H, sr, plot)
+            if harmonic_audio is None:
+                note.invalidate(FilterReason.NO_HARMONIC_AUDIO, step="find_partials")
+                continue
+            preprocessed_audio, window = note_audio_preprocess(harmonic_audio, W, H)
+
+            if preprocessed_audio.ndim < 2:
+                note.invalidate(FilterReason.HARMONIC_AUDIO_TOO_SHORT, step="find_partials")
+                continue
+
+            # rfft: shape (n_frames, W//2+1)
+            fft_frames = np.fft.rfft(preprocessed_audio, axis=1)
+
+            f0 = note.attributes.pitch
+            beta = 0.0  # start with pure-harmonic assumption
+            n_iter = 50  # empirically 2–3 iterations usually suffice
+
+            for i, iteration in enumerate(range(n_iter)):
+                # ---- find peaks in spectrum ----------------------------------------
+                partial_freqs, partial_amps, partial_bins, search_windows = find_partials(
+                    fft_frames=fft_frames,
+                    f0_guess=f0,
+                    beta=beta,
+                    sr=sr,  # your sample-rate constant
+                    W=W,
+                    n_partials=50,
+                    search_hz=f0/4,
+                    partial_amp_threshold_dB=threshold,
+                )
+
+
+                t_frames = np.arange(partial_freqs.shape[0]) * (H / sr)
+                # Store on the note object so the estimator can read them
+                note.partials[audio_type] = Partials(
+                    frametimes=t_frames,
+                    frequencies=partial_freqs,
+                    amplitudes=partial_amps,
+                )
+
+                # ---- estimate β from the current partial positions -----------------
+                betas, betas0 = estimate_inharmonicity_coefficient_all_frets(
+                    note.partials[audio_type],
+                    note.attributes.fret,
+                )
+                if len(betas) == 0:
+                    note.invalidate(FilterReason.NO_BETAS, step="calculate_features")
+                    break
+
+                beta_new = np.nanmedian(betas)
+                if not np.isfinite(beta_new) or beta_new <= 0:
+                    break  # or: keep current beta and break
+
+                if abs(beta_new - beta) / beta_new < 0.001:
+                    break
+
+                beta = beta_new
+
+
+
+                """ Plot every iteration"""
+                if True:
+                    # --- Spectrogram with partials overlay ---
+                    fft_mag = np.abs(np.fft.rfft(preprocessed_audio, axis=1))
+                    fft_mag_db = 20 * np.log10(fft_mag + 1e-12)
+
+                    # Drop first FFT frame to match inst_freq length
+                    fft_mag_db_if = fft_mag_db[0:]
+                    times_if = np.arange(fft_mag_db_if.shape[0]) * (H / sr)
+
+                    freqs = np.fft.rfftfreq(W, 1 / sr)
+
+                    plt.figure(figsize=(14, 12))
+
+                    pcm = plt.pcolormesh(
+                        times_if,
+                        freqs,
+                        fft_mag_db_if.T,
+                        shading="auto",
+                        cmap="magma",
+                        vmin=threshold,
+                        vmax=2,
+                    )
+
+                    # Overlay partials
+                    for p in range(partial_freqs.shape[1]):
+                        plt.plot(times_if, partial_freqs[:, p], linewidth=2.5, color='g')
+
+                    for (t, f_k, f_lo, f_hi) in search_windows:
+                        plt.hlines(
+                            [f_lo, f_hi],
+                            times_if[t] - H / sr / 2,
+                            times_if[t] + H / sr / 2,
+                            color="cyan",
+                            alpha=0.6
+                        )
+
+                    # plt.yscale("log")
+                    plt.ylim(80, 8000)
+                    plt.colorbar(pcm, label="Magnitude (dB)")
+                    plt.title(
+                        f"Spectrogram with Extracted Partials – "
+                        f"{note.attributes.pitch:.2f} Hz, String: {note.attributes.string_index}\n"
+                        f"Beta: {beta:.2f}"
+                        f"Iteration: {i}"
+                    )
+                    plt.xlabel("Time (s)")
+                    plt.ylabel("Frequency (Hz)")
+                    # plt.legend(ncol=4, fontsize=9)
+                    plt.tight_layout()
+                    plt.show()
+
+
+            # betas = filter_betas(betas, beta_max)
+            # if len(betas) == 0:
+            #     note.invalidate(FilterReason.NO_BETAS_AFTER_FILTER, step="calculate_features")
+            #     continue
+
+            """ Features """
+            # assign attributed f0 to features
+            note.features[audio_type].f0 = note.attributes.pitch
+
+            betas_measures = np.array([
+                np.nanmean(betas, axis=0),
+                np.nanmedian(betas, axis=0),
+                np.nanstd(betas, axis=0),
+                np.nanvar(betas, axis=0),
+                np.nanmin(betas, axis=0),
+                np.nanmax(betas, axis=0),
+                stats.skew(betas, nan_policy="omit"),
+                stats.kurtosis(betas, nan_policy="omit"),
+                kde_mode(betas),  # already filters NaNs internally
+            ])
+
+
+            sc_measures = spectral_centroid_feature(preprocessed_audio, W, H, sr)
             note.features[audio_type].spectral_centroid = sc_measures
 
 
             amp_deviation_measures, amp_decay_coefficients = relative_amplitude_deviations(note.partials[audio_type]) # (25,)
-            freq_deviation_measures = relative_freq_deviations(note.partials[audio_type], median_beta)
+            freq_deviation_measures = relative_freq_deviations(note.partials[audio_type], beta)
 
             # valid_slopes = np.isfinite(amp_decay_coefficients)
             valid_partials = np.isfinite(amp_decay_coefficients)#.astype(int)
 
             # write into note.features
-            note.features[audio_type].beta = median_beta
+            note.features[audio_type].beta = beta
             note.features[audio_type].betas_measures = betas_measures
 
             note.features[audio_type].valid_partials = valid_partials
@@ -402,9 +647,14 @@ def main(config):
     args_list = [(fp, beta_max, plot, threshold, W,H, audio_types) for fp in filepaths]
 
     # Create pool and process files
-    num_processes = mp.cpu_count() - 1  # Leave one core free
-    with mp.Pool(processes=num_processes) as pool:
-        results = pool.map(process_single_file, args_list)
+    # num_processes = mp.cpu_count() - 1  # Leave one core free
+    # with mp.Pool(processes=num_processes) as pool:
+    #     results = pool.map(process_single_file, args_list)
+
+    results = []
+    for args in args_list:
+        result = process_single_file(args)
+        results.append(result)
 
     # Print results
     for i, result in enumerate(results, 1):
@@ -413,6 +663,6 @@ def main(config):
 
 if __name__ == "__main__":
     config = ConfigParser()
-    config.read('config_train_GuitarSet.ini')
+    config.read('configs/config_train_single_note_IDMT.ini')
 
     main(config)

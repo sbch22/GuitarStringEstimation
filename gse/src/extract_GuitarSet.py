@@ -82,11 +82,9 @@ def preprocess_dataset(data_dir, save_dir):
             filename_solo = filename.replace("comp", "solo")
             train_filename_list.append(filename_solo)
 
-
     # load Senva test file list
     with open('../../data/GuitarSet/GuitarStringSeparation-MF-NMF-NMFD-master/testSet.csv', newline='') as csvfile:
         test_filename_list_comp = []
-
         test_filename_list_solo = []
         spamreader = csv.reader(csvfile)
         for row in spamreader:
@@ -102,16 +100,17 @@ def preprocess_dataset(data_dir, save_dir):
             if filename_solo in train_filename_list:
                 train_filename_list.remove(filename)
 
+    # ── collect split info for CSV export ──────────────────────────────────
+    split_rows = []   # list of dicts: {split, subset, track_name, mono_mic_path}
+
     for test_filename in test_filename_list_comp:
         filebase = test_filename.split(".wav")[0]
         guitarset_id = filebase.split("_hex")[0]
-        # load according jams file
         ann_filename = os.path.join(data_dir, 'annotation', guitarset_id + ".jams")
 
         track = create_track_from_jam(ann_filename, guitarset_id)
 
-        # audio
-        base_name = track.name  # e.g. "00_BN1-129-Eb_comp"
+        base_name = track.name
         paths = {
             "mono_mic": os.path.join(data_dir, "audio_mono-mic", f"{base_name}_mic.wav"),
             "hex_debleeded": os.path.join(data_dir, "audio_hex-pickup_debleeded", f"{base_name}_hex_cln.wav"),
@@ -119,25 +118,23 @@ def preprocess_dataset(data_dir, save_dir):
             "hex": os.path.join(data_dir, "audio_hex-pickup_original", f"{base_name}_hex.wav"),
         }
         track.audio_paths = paths
-
-        print(Track.__module__)
 
         track_filename = os.path.basename(ann_filename).replace('.jams', '_track.pkl')
         save_path = os.path.join(save_dir, 'GuitarSet', 'test', 'comp', track_filename)
         track.save(save_path)
         print(f'Saved track object: {save_path}')
 
-    # loads the according solo files
+        split_rows.append({"split": "test", "subset": "comp",
+                           "track_name": base_name, "mono_mic_path": paths["mono_mic"]})
+
     for test_filename in test_filename_list_solo:
         filebase = test_filename.split(".wav")[0]
         guitarset_id = filebase.split("_hex")[0]
-        # load according jams file
         ann_filename = os.path.join(data_dir, 'annotation', guitarset_id + ".jams")
 
         track = create_track_from_jam(ann_filename, guitarset_id)
 
-        # audio
-        base_name = track.name  # e.g. "00_BN1-129-Eb_comp"
+        base_name = track.name
         paths = {
             "mono_mic": os.path.join(data_dir, "audio_mono-mic", f"{base_name}_mic.wav"),
             "hex_debleeded": os.path.join(data_dir, "audio_hex-pickup_debleeded", f"{base_name}_hex_cln.wav"),
@@ -145,23 +142,23 @@ def preprocess_dataset(data_dir, save_dir):
             "hex": os.path.join(data_dir, "audio_hex-pickup_original", f"{base_name}_hex.wav"),
         }
         track.audio_paths = paths
-
-        print(Track.__module__)
 
         track_filename = os.path.basename(ann_filename).replace('.jams', '_track.pkl')
         save_path = os.path.join(save_dir, 'GuitarSet', 'test', 'solo', track_filename)
         track.save(save_path)
         print(f'Saved track object: {save_path}')
 
+        split_rows.append({"split": "test", "subset": "solo",
+                           "track_name": base_name, "mono_mic_path": paths["mono_mic"]})
+
     for train_filename in train_filename_list:
         filebase = train_filename.split(".wav")[0]
         guitarset_id = filebase.split("_hex")[0]
-        # load according jams file
         ann_filename = os.path.join(data_dir, 'annotation', guitarset_id + ".jams")
 
         track = create_track_from_jam(ann_filename, guitarset_id)
-        # audio
-        base_name = track.name  # e.g. "00_BN1-129-Eb_comp"
+
+        base_name = track.name
         paths = {
             "mono_mic": os.path.join(data_dir, "audio_mono-mic", f"{base_name}_mic.wav"),
             "hex_debleeded": os.path.join(data_dir, "audio_hex-pickup_debleeded", f"{base_name}_hex_cln.wav"),
@@ -171,9 +168,23 @@ def preprocess_dataset(data_dir, save_dir):
         track.audio_paths = paths
 
         track_filename = os.path.basename(ann_filename).replace('.jams', '_track.pkl')
-        save_path = os.path.join(save_dir, 'GuitarSet', 'train',  track_filename)
+        save_path = os.path.join(save_dir, 'GuitarSet', 'train', track_filename)
         track.save(save_path)
         print(f'Saved track object: {save_path}')
+
+        subset = "comp" if "comp" in base_name else "solo"
+        split_rows.append({"split": "train", "subset": subset,
+                           "track_name": base_name, "mono_mic_path": paths["mono_mic"]})
+
+    # ── write split CSV ─────────────────────────────────────────────────────
+    split_csv_path = os.path.join(save_dir, 'GuitarSet', 'split.csv')
+    os.makedirs(os.path.dirname(split_csv_path), exist_ok=True)
+    with open(split_csv_path, 'w', newline='') as csvfile:
+        fieldnames = ["split", "subset", "track_name", "mono_mic_path"]
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(split_rows)
+    print(f'Saved split CSV: {split_csv_path}')
 
 # Main
 def main():

@@ -40,9 +40,6 @@ def main(subset):
         config_train = ConfigParser()
         config_train.read('configs/config_train_single_note_IDMT.ini')
 
-    # --- Step 1: Find partials ---
-    find_partials.main(config_train)
-
     # --- Step 2: Calculate features ---
     calculate_features.main(config_train)
 
@@ -145,4 +142,4 @@ if __name__ == "__main__":
     subset_single_note_IDMT = 'single_note_IDMT'
     subset_GuitarSet = 'GuitarSet'
 
-    main(subset_single_note_IDMT)
+    main(subset_GuitarSet)
