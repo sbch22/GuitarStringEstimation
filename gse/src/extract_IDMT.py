@@ -9,23 +9,16 @@ import xml.etree.ElementTree as ET
 import random
 
 def main():
-    data_dir = '../../data/IDMT/dataset2/'
-    save_dir = '../noteData/single_note/'
+    data_dir = '../../data/IDMT/dataset3/'
+    save_dir = '../noteData/IDMT_dataset3/'
 
     audio_dir = os.path.join(data_dir, 'audio')
 
     # Collect all audio files and split
     all_audio_files = glob.glob(os.path.join(audio_dir, '*.wav'))
-    random.shuffle(all_audio_files)
-
-    split_idx = int(len(all_audio_files) * 0.8)
-    train_files = set(all_audio_files[:split_idx])
-    test_files  = set(all_audio_files[split_idx:])
 
     # Create output directories
-    train_dir = os.path.join(save_dir, 'train')
     test_dir  = os.path.join(save_dir, 'test')
-    os.makedirs(train_dir, exist_ok=True)
     os.makedirs(test_dir,  exist_ok=True)
 
     for audio_filepath in all_audio_files:
@@ -42,18 +35,17 @@ def main():
             dataset="single_note",
         )
 
-        for event in root.findall('event'):
-            pitch      = int(event.find('pitch').text)
+        for event in root.findall('transcription/event'):
+            midi_note      = int(event.find('pitch').text)
             onset      = float(event.find('onsetSec').text)
+            offset     = float(event.find('offsetSec').text)
             fret       = int(event.find('fretNumber').text)
             string_num = int(event.find('stringNumber').text)
-            freq       = (440 / 32) * (2 ** ((pitch - 9) / 12))
+            freq       = (440 / 32) * (2 ** ((midi_note - 9) / 12))
 
-            audio  = pf.io.read_audio(audio_filepath)
-            offset = audio.signal_length
 
             attr = Attributes(
-                midi_note=pitch,
+                midi_note=midi_note,
                 is_drum=False,
                 program=24,
                 onset=onset,
@@ -72,8 +64,7 @@ def main():
             track.notes.append(note)
 
         # Save to train or test directory
-        split_subdir = train_dir if audio_filepath in train_files else test_dir
-        track_save_path = os.path.join(split_subdir, track.name)
+        track_save_path = os.path.join(test_dir, track.name)
         track.save(track_save_path + '.pkl')
 
 # %%

@@ -28,17 +28,20 @@ def main(subset):
     ])
 
     for i, filepath in enumerate(filepaths, 1):
-        print(f"\n[{i}/{len(filepaths)}] Evaluating: {filepath}")
+        print(f"\n[{i}/{len(filepaths)}] Extracting Notes: {filepath}")
 
         with open(filepath, "rb") as f:
             track = pickle.load(f)
 
+        model_notes = [n for n in track.valid_notes]
 
-        # TODO: Evaluate if model_note is actually good?
-        model_notes = [n for n in track.notes if n.origin == 'model']
+        # extract tuples
+        onset_f0_pairs = [
+            (note.attributes.onset, note.attributes.pitch)
+            for note in model_notes
+        ]
+        onset_f0_pairs.sort(key=lambda x: x[0])
 
-        onsets = [note.attributes.onset for note in model_notes]
-        onsets.sort()
         # Build the matching CSV filename
         filename = os.path.basename(filepath)
         filename = os.path.splitext(filename)[0]  # strip .pkl
@@ -49,12 +52,10 @@ def main(subset):
 
         with open(onsets_filepath, 'w', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(['onset_s'])  # single header — easy to skip in MATLAB
-            for onset in onsets:
-                writer.writerow([round(float(onset), 6)])
+            writer.writerow(['onset_s', 'f0'])  # two columns now
 
-        print(f"  Wrote {len(onsets)} onsets → {onsets_filepath}")
-
+            for onset, f0 in onset_f0_pairs:
+                writer.writerow([round(float(onset), 6), float(f0)])
 
 
 if __name__ == "__main__":

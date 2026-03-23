@@ -38,6 +38,19 @@ class Features:
             axis=0
         )
 
+    def segment_layout(self) -> dict[str, int]:
+        """Returns {segment_name: length} in the same order as fill_feature_vector."""
+        segments = {
+            "f0": self.f0,
+            "betas_measures": self.betas_measures,
+            "valid_partials": self.valid_partials,
+            "spectral_centroid": self.spectral_centroid,
+            "rel_partial_amplitudes": self.rel_partial_amplitudes,
+            "amp_decay_coefficients": self.amp_decay_coefficients,
+            "rel_freq_deviations": self.rel_freq_deviations,
+        }
+        return {k: np.asarray(v, dtype=float).ravel().size for k, v in segments.items()}
+
 @dataclass
 class Attributes:
     pitch: Optional[float] = None # frequency in Hz

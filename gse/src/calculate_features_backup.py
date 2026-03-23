@@ -16,17 +16,12 @@ from scipy.signal import find_peaks
 import matplotlib.gridspec as gridspec
 from matplotlib.colors import to_rgba
 
+
+
 from utils.FeatureNote_dataclass import FilterReason
 from utils.FeatureNote_dataclass import Features
 from gse.src.utils.FeatureNote_dataclass import Partials
 from find_partials import note_audio_preprocess
-
-
-import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
-from matplotlib.lines import Line2D
-
-
 
 
 """ FEATURES """
@@ -133,8 +128,7 @@ def relative_amplitude_deviations(partials):
     amps_end   = np.where(has_valid, amps[last_idx,  k_idx], np.nan)  # (K,)
 
     amp_slopes = - (amps_start - amps_end)  # (K,) — NaN where partial fully absent
-    rel_amps = amps - amps[:, 0:1]  # dB-Differenz zu f0
-    rel_amps = rel_amps[:, 1:]  # Partial 0 raus (immer = 0, keine Info)
+    rel_amps = amps / amps[:, 0:1]
 
     median_amps = np.nanmedian(
         rel_amps, axis=0
@@ -255,9 +249,19 @@ def kde_mode(data):
     except np.linalg.LinAlgError:
         return np.nan
 
+from scipy.optimize import least_squares
+import numpy as np
+
+from scipy.optimize import least_squares
+import numpy as np
+
+from scipy.optimize import least_squares
+import numpy as np
 
 
-def estimate_inharmonicity_coefficient_all_frets(partials, plot, min_partials=4):
+
+
+def estimate_inharmonicity_coefficient_all_frets(partials, min_partials=4):
     freqs = partials.frequencies  # (T, K)
     T, K = freqs.shape
     betas = np.full(T, np.nan)
@@ -288,7 +292,6 @@ def estimate_inharmonicity_coefficient_all_frets(partials, plot, min_partials=4)
 
             # Eq. (17): beta
             beta = 2 * a / (f0 + b)
-
 
             # sanity checks
             if np.isfinite(beta) and beta > 0:
@@ -322,6 +325,7 @@ def _hz_to_bin_range(
         b_hi = min(b_lo + 2, bin_nyquist)
 
     return b_lo, b_hi
+
 
 
 
@@ -408,6 +412,11 @@ def find_partials(
     f0_per_frame = np.full(n_frames, np.nan, dtype=float)
 
     for t in range(1, n_frames):
+
+        b_lo = max(prev_bin - 1, 0)
+        b_hi = min(prev_bin + 1, bin_nyquist)
+        prev_bin = b_lo + idx0  # update
+
         region = fft_norm[t, b_lo_f0-1: b_hi_f0 + 1] # TODO: extend search range down asymmetrically
         if region.size == 0:
             continue
@@ -433,7 +442,7 @@ def find_partials(
                 continue
 
         f0_per_frame[t] = candidate_f0
-
+        f0_frame = medfilt(f0_per_frame, kernel_size=5)
 
     # ── Stage 2: find each partial using the per-frame f0 ─────────────────
     W_AMP      = 2.0
@@ -456,6 +465,10 @@ def find_partials(
                 semitone_gate(f_k, SEARCH_SEMITONES_PARTIAL),
                 f0_t / 2.0,
             )
+
+            # ALT: physikalisch korrekt — Inharmonizität schiebt Partialen NUR nach oben
+            f_min = h * f0_t * (1 - tol)  # fast kein Spielraum nach unten
+            f_max = h * f0_t * np.sqrt(1 + beta_max * h ** 2)  # obere Grenze durch Physik definiert
 
             b_lo, b_hi = _hz_to_bin_range(f_k, partial_search_hz, W, sr, bin_nyquist)
             amp_region  = fft_norm[t, b_lo: b_hi + 1]
@@ -508,6 +521,10 @@ def find_partials(
             # Hard gate: amplitude alone must not override a physically bad jump
             if not np.isnan(prev_freq) and abs(detected_freq - prev_freq) > max_jump_hz:
                 continue
+            # ALT: bei Zeitkontinuitätsverletzung → vorherigen Wert beibehalten
+            if abs(freq - partial_freqs[t - 1, p_idx]) > max_jump_hz:
+                freq = partial_freqs[t - 1, p_idx]  # stale aber nicht leer
+                amp = partial_amps[t - 1, p_idx]
 
             partial_freqs[t, p_idx] = detected_freq
             partial_amps[t, p_idx]  = 20.0 * np.log10(float(cand_amps[best_idx]) + 1e-12)
@@ -664,7 +681,7 @@ def process_single_file(args):
 
                 # ---- estimate β from the current partial positions -----------------
                 betas = estimate_inharmonicity_coefficient_all_frets(
-                    note.partials[audio_type], plot=(string_idx == 4 or string_idx == 5),)
+                    note.partials[audio_type])
 
                 num_iterations = i
 

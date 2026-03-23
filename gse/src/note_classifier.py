@@ -169,10 +169,11 @@ def plausibility_filter(probabilities, notes, centroid_tracker, config=FILTER_CO
 
     return probabilities
 
+def plot_confusion_matrix(results, normalize=True, title='Gitarrensaitenklassifikation', subset_label=None):
+    cm     = results['confusion_matrix'].copy().astype(float)
+    labels = results['string_names']
+    full_title = f"{title} ({subset_label})" if subset_label else title
 
-def plot_confusion_matrix(results, normalize=True, title='Guitar String Confusion Matrix'):
-    cm     = results['confusion_matrix']
-    labels = results['string_names']   # ← use names here instead of indices
 
     if normalize:
         cm = cm.astype(float) / cm.sum(axis=1, keepdims=True)
@@ -186,11 +187,16 @@ def plot_confusion_matrix(results, normalize=True, title='Guitar String Confusio
         xticklabels=labels, yticklabels=labels,
         vmin=0, vmax=vmax, ax=ax
     )
-    ax.set_xlabel('Predicted String')
-    ax.set_ylabel('True String')
-    ax.set_title(title)
+
+    if normalize:
+        for text in ax.texts:
+            text.set_text(text.get_text())
+    ax.set_xlabel('Saite (geschätzt)')
+    ax.set_ylabel('Saite (Grundwahrheit)')
+    ax.set_title(full_title)
     plt.tight_layout()
     plt.show()
+
 
 STRING_NAMES = ['E2', 'A2', 'D3', 'G3', 'B3', 'E4']  # index → name mapping
 
@@ -365,19 +371,17 @@ def main(subset):
         config_test = ConfigParser()
         config_test.read('configs/config_test_single_note_IDMT.ini')
 
-    find_partials.main(
-        config_test
-    )
 
-    calculate_features.main(
-        config_test
-    )
+    calculate_features.main(config_test)
+
 
     track_directory = config_test.get('paths', 'track_directory')
     audio_types_raw = config_test.get('paths', 'audio_types')
     audio_types = [a.strip() for a in audio_types_raw.split(',')]
 
-    SVM = joblib.load("svm_pipeline.joblib")
+    # SVM = joblib.load("SVM_full_2203_solo.joblib")
+    SVM = joblib.load("SVM_full-1_solo.joblib")
+
 
     # TODO: suppress warnings empty features
     warnings.filterwarnings(
@@ -389,7 +393,7 @@ def main(subset):
 
     # Collect all file paths
     filepaths = [
-        os.path.join(track_directory, filename)
+        os.path.join(track_directory,filename)
         for filename in os.listdir(track_directory)
         if filename.endswith(".pkl")
         if os.path.isfile(os.path.join(track_directory, filename))
@@ -470,7 +474,11 @@ def main(subset):
 
     print(results['overall'])  # Overall accuracy, F1, etc.
     print(results['per_string'])  # Per-string breakdown
-    plot_confusion_matrix(results)  # Heatmap of string confusions
+    # plot_confusion_matrix(results, subset)  # Heatmap of string confusions
+
+    # Aufruf:
+    plot_confusion_matrix(results, subset_label=subset)
+
 
     print("\n\n Success! Classification done.")
 
@@ -479,9 +487,9 @@ if __name__ == "__main__":
     subset_solo = 'solo'
     subset_comp = 'comp'
     subset_GOAT = 'GOAT'
-    subset_single_note_IDMT = 'single_note_IDMT'
+    # subset_single_note_IDMT = 'single_note_IDMT'
 
     main(subset_solo)
     main(subset_comp)
-    main(subset_GOAT)
-    main(subset_single_note_IDMT)
+    # main(subset_GOAT)
+    # main(subset_single_note_IDMT)
