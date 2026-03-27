@@ -79,9 +79,9 @@ def get_occupied_strings(current_note, all_notes, all_probs, tolerance=0.05):
 # Filter-Toggles
 FILTER_CONFIG = {
     "physical_range":   True,   # Unmögliche Saiten auf 0
-    "fret_probability": True, # fret probabilities from GOAT
+    "fret_probability": False, # worse
     "centroid_penalty": True,   # Hand-Position / Spannweite
-    "string_occupancy": False,   # Keine zwei Noten gleichzeitig auf einer Saite
+    "string_occupancy": True,   # Keine zwei Noten gleichzeitig auf einer Saite
 }
 
 
@@ -370,9 +370,12 @@ def main(subset):
     elif subset == 'single_note_IDMT':
         config_test = ConfigParser()
         config_test.read('configs/config_test_single_note_IDMT.ini')
+    elif subset == 'IDMT':
+        config_test = ConfigParser()
+        config_test.read('configs/config_test_IDMT.ini')
 
 
-    calculate_features.main(config_test)
+    # calculate_features.main(config_test)
 
 
     track_directory = config_test.get('paths', 'track_directory')
@@ -380,7 +383,7 @@ def main(subset):
     audio_types = [a.strip() for a in audio_types_raw.split(',')]
 
     # SVM = joblib.load("SVM_full_2203_solo.joblib")
-    SVM = joblib.load("SVM_full-1_solo.joblib")
+    SVM = joblib.load("SVM_full-1_new.joblib")
 
 
     # TODO: suppress warnings empty features
@@ -397,6 +400,7 @@ def main(subset):
         for filename in os.listdir(track_directory)
         if filename.endswith(".pkl")
         if os.path.isfile(os.path.join(track_directory, filename))
+        # if "mono" in filename
     ]
 
     all_predictions = []
@@ -487,9 +491,11 @@ if __name__ == "__main__":
     subset_solo = 'solo'
     subset_comp = 'comp'
     subset_GOAT = 'GOAT'
-    # subset_single_note_IDMT = 'single_note_IDMT'
+    subset_single_note_IDMT = 'single_note_IDMT'
+    subset_IDMT = 'IDMT'
 
     main(subset_solo)
     main(subset_comp)
     # main(subset_GOAT)
     # main(subset_single_note_IDMT)
+    # main(subset_IDMT)

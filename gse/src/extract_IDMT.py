@@ -32,7 +32,7 @@ def main():
         track = Track(
             name=filename.split('.')[0],
             audio_paths={"mono": audio_filepath},
-            dataset="single_note",
+            dataset="IDMT-dataset3",
         )
 
         for event in root.findall('transcription/event'):

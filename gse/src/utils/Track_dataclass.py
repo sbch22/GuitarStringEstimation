@@ -73,7 +73,7 @@ class Track:
     @property
     def valid_notes(self) -> List[FeatureNote]:
         """All notes that are currently marked valid."""
-        if self.dataset == "single_note":
+        if self.dataset == "single_note" or self.dataset == "IDMT-dataset3":
             return [n for n in self.notes]
         else:
             return [n for n in self.notes if n.valid and n.origin == 'model']
