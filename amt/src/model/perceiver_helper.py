@@ -246,7 +246,7 @@ class PerceiverTFPreTrainedModel(PreTrainedModel):
             module.weight.data.fill_(1.0)
         # elif hasattr(module, "position_embeddings") and isinstance(
         #         module, PerceiverTrainablePositionEncoding):
-        #     module.position_embeddings.data.normal_(mean=0.0, std=self.config.initializer_range)
+        #     module.position_embeddings.noteData.normal_(mean=0.0, std=self.config.initializer_range)
 
 
 # Replace the 'ModelOutputWithCrossAttentions' with 'MoEModelOutputWithCrossAttentions' for MoE

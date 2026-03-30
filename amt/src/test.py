@@ -26,7 +26,7 @@ parser = argparse.ArgumentParser(description="YourMT3")
 # General
 parser.add_argument('exp_id', type=str, help='A unique identifier for the experiment is used to resume training. The "@" symbol can be used to load a specific checkpoint.')
 parser.add_argument('-p', '--project', type=str, default='ymt3', help='project name')
-parser.add_argument('-d', '--data-preset', type=str, default='musicnet_thickstun_ext_em', help='dataset preset (default=musicnet_thickstun_ext_em). See config/data.py for more options.')
+parser.add_argument('-d', '--noteData-preset', type=str, default='musicnet_thickstun_ext_em', help='dataset preset (default=musicnet_thickstun_ext_em). See config/noteData.py for more options.')
 # Audio configurations
 parser.add_argument('-ac', '--audio-codec', type=str, default=None, help='audio codec (default=None). {"spec", "melspec"}. If None, default value defined in config.py will be used.')
 parser.add_argument('-hop', '--hop-length', type=int, default=None, help='hop length in frames (default=None). {128, 300} 128 for MT3, 300 for PerceiverTFIf None, default value defined in config.py will be used.')
@@ -70,8 +70,8 @@ parser.add_argument('-dff', '--decoder-ff-layer-type', type=str, default=None, h
 parser.add_argument('-dwf', '--decoder-ff-widening-factor', type=int, default=None, help='Feed forward layer widening factor for decoder MLP/MoE/gMLP (default=None). If None, default value defined in config.py will be used.')
 # Task and Evaluation configurations
 parser.add_argument('-tk', '--task', type=str, default='mt3_full_plus', help='tokenizer type (default=mt3_full_plus). See config/task.py for more options.')
-parser.add_argument('-epv', '--eval-program-vocab', type=str, default=None, help='evaluation vocabulary (default=None). If None, default vocabulary of the data preset will be used.')
-parser.add_argument('-edv', '--eval-drum-vocab', type=str, default=None, help='evaluation vocabulary for drum (default=None). If None, default vocabulary of the data preset will be used.')
+parser.add_argument('-epv', '--eval-program-vocab', type=str, default=None, help='evaluation vocabulary (default=None). If None, default vocabulary of the noteData preset will be used.')
+parser.add_argument('-edv', '--eval-drum-vocab', type=str, default=None, help='evaluation vocabulary for drum (default=None). If None, default vocabulary of the noteData preset will be used.')
 parser.add_argument('-etk', '--eval-subtask-key', type=str, default='default', help='evaluation subtask key (default=default). See config/task.py for more options.')
 parser.add_argument('-t', '--onset-tolerance', type=float, default=0.05, help='onset tolerance (default=0.05).')
 parser.add_argument('-os', '--test-octave-shift', type=str2bool, default=False, help='test optimal octave shift (default=False). True or False')
@@ -112,7 +112,7 @@ def main():
     elif args.data_preset in data_preset_multi_cfg:
         data_preset = data_preset_multi_cfg[args.data_preset]
     else:
-        raise ValueError("Invalid data preset")
+        raise ValueError("Invalid noteData preset")
     eval_drum_vocab = data_preset.get("eval_drum_vocab", None)
 
     if args.eval_drum_vocab != None:  # override eval_drum_vocab

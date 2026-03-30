@@ -229,7 +229,7 @@ def create_note_event_and_note_from_midi(
     }
 
 
-def preprocess_rwc_pop_full16k(data_home='../../data',
+def preprocess_rwc_pop_full16k(data_home='../../noteData',
                                dataset_name='rwc_pop') -> None:
     # Directory and file paths
     base_dir = os.path.join(data_home, dataset_name + '_yourmt3_16k')
