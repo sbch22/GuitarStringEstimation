@@ -383,7 +383,7 @@ def main(subset):
     audio_types = [a.strip() for a in audio_types_raw.split(',')]
 
     # SVM = joblib.load("SVM_full_2203_solo.joblib")
-    SVM = joblib.load("SVM_full-1_new.joblib")
+    SVM = joblib.load("SVM_full_pre-DAGA.joblib")
 
 
     # TODO: suppress warnings empty features

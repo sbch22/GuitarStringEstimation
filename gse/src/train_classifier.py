@@ -195,7 +195,7 @@ def main(subset):
     # joblib.dump(best_model, "svm_pipeline_CV5_GS_20p_old.joblib")
 
     SVM.fit(FX, labels)
-    joblib.dump(SVM, "SVM_full-1_new.joblib") #TODO: wenn das nicht gut ist -> train on Solo
+    joblib.dump(SVM, "SVM_full_pre-DAGA.joblib") #TODO: wenn das nicht gut ist -> train on Solo
     # print(f"Best f1_macro:  {SVM.score:.3f}")
 
 
