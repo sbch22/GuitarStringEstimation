@@ -31,10 +31,7 @@ pip install -r requirements.txt
 ```
 
 5. Install the dataset:
-```bash
-python install_dataset.py
-```
-Follow the instructions in the CLI. For this project, only GuitarSet dataset is needed.
+Download GuitarSet and place it in adjacent folder.
 
 6. Extract notes information the dataset:
 ```bash
@@ -81,45 +78,7 @@ GuitarStringEstimation/
 
 ## Usage Instructions:
 
-### Evaluate accuracy of YourMT3
-To run the evaluation script of YourMT3, navigate to the appropriate directory:
-```bash
-cd amt/src/f0-tracking_accuracy
-python f0-trackingYMT3_eval_controller.py
-```
-
-Note: These are intensive calculations best performed on a GPU-accelerated machine. For debugging, modify the `dbg` boolean toggle in the main() call in `f0-trackingYMT3_eval.py`.
-
-### Calculate Beta-Distributions
-Calculates the inharmonicity coefficient (beta) distributions:
-```bash
-python betaDistributions.py
-```
-
-### Perform statistical analysis on Beta-Distributions
-Runs statistical tests and generates histograms:
-```bash
-python betaDistributions_statTest.py
-```
-
-
-### Run Guitar String Estimation
-Calculates guitar string estimations for each note in GuitarSet:
-```bash
-python guitar_string_estimator.py
-```
 
 ## Scripts
 Found in the `scripts/` folder.
-### Frequency Estimation Algorithms
-Frequency estimation algorithm comparison. 
-```bash
-python FrequencyEstimationAccuracy_eval.py
-```
 
-
-### Evaluate Beta-Distributions algorithm
-Evaluates the algorithm for finding Beta-Distributions on synthetic testsignals. Must be run from Project root.
-```bash
-python betaDistributions_eval.py
-```

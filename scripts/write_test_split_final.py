@@ -30,8 +30,8 @@ def main():
     solo_files += [''] * (max_len - len(solo_files))
     comp_files += [''] * (max_len - len(comp_files))
 
-    output_path = os.path.join('configs', 'test_split.csv')
-    os.makedirs('configs', exist_ok=True)
+    output_path = os.path.join('../gse/src/configs', 'test_split.csv')
+    os.makedirs('../gse/src/configs', exist_ok=True)
 
     with open(output_path, 'w', newline='') as f:
         writer = csv.writer(f)

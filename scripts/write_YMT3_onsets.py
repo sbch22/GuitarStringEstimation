@@ -46,7 +46,7 @@ def main(subset):
         filename = os.path.basename(filepath)
         filename = os.path.splitext(filename)[0]  # strip .pkl
         filename = filename.replace('_track', '.csv')  # e.g. 00_BN1-129-Eb_comp.csv
-        onsets_filepath = os.path.join('../../data/GuitarSet/hjerrild_transcription/audio_mono-mic/Onsets/', filename)
+        onsets_filepath = os.path.join('../data/GuitarSet/hjerrild_transcription/audio_mono-mic/Onsets/', filename)
 
         os.makedirs(transcription_directory, exist_ok=True)
 

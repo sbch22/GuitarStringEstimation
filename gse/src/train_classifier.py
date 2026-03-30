@@ -101,7 +101,7 @@ def main(subset):
         config_train.read('configs/config_train_single_note_IDMT.ini')
 
     # --- Step 2: Calculate features ---
-    calculate_features.main(config_train)
+    # calculate_features.main(config_train)
 
     track_directory = config_train.get('paths', 'track_directory')
     audio_types_raw = config_train.get('paths', 'audio_types')

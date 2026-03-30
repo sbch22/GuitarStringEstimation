@@ -12,7 +12,7 @@ from collections import defaultdict
 TARGET_STRINGS = list(range(6))          # strings 0–5
 TARGET_FRETS   = [5, 12]                 # frets of interest
 NOTES_PER_CASE = 20                      # first N notes per (string, fret)
-OUTPUT_DIR     = "../../data/GuitarSet/note_audio_clips"
+OUTPUT_DIR     = "../data/GuitarSet/note_audio_clips"
 
 # How much audio to capture around each note (seconds).
 # If your Note objects carry an `offset` attribute, that is used instead.
