@@ -101,7 +101,7 @@ def main(subset):
         config_train.read('configs/config_train_single_note_IDMT.ini')
 
     # --- Step 2: Calculate features ---
-    calculate_features.main(config_train)
+    # calculate_features.main(config_train)
 
     track_directory = config_train.get('paths', 'track_directory')
     audio_types_raw = config_train.get('paths', 'audio_types')
@@ -170,33 +170,33 @@ def main(subset):
         ('svm', SVC(kernel='rbf', C=10, gamma=0.001, probability=True)),
     ])
 
-    # # ── Grid Search
-    # param_grid = {
-    #     'svm__C': [0.1, 1, 10, 100],
-    #     'svm__gamma': ['scale', 'auto', 0.001, 0.01]
-    # }
+    # ── Grid Search
+    param_grid = {
+        'svm__C': [10, 100],
+        'svm__gamma': [0.001, 0.01]
+    }
 
     # # Und Daten auf 20% reduzieren um Laufzeit abzuschätzen
     # FX_sub, _, labels_sub, _ = train_test_split(
     #     FX, labels, train_size=0.3, stratify=labels, random_state=42
     # )
 
-    # print("\nRunning GridSearchCV...")
-    # cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-    # grid = GridSearchCV(SVM, param_grid, cv=cv, scoring='f1_macro', n_jobs=-1)
-    # grid.fit(FX_sub, labels_sub)
+    print("\nRunning GridSearchCV...")
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    grid = GridSearchCV(SVM, param_grid, cv=cv, scoring='f1_macro', n_jobs=-1)
+    grid.fit(FX, labels)
 
-    # print(f"Best params:       {grid.best_params_}")
-    # print(f"Best CV f1_macro:  {grid.best_score_:.3f}")
-    #
-    # best_model = grid.best_estimator_
+    print(f"Best params:       {grid.best_params_}")
+    print(f"Best CV f1_macro:  {grid.best_score_:.3f}")
+
+    best_model = grid.best_estimator_
 
     # Output
-    # joblib.dump(best_model, "svm_pipeline_CV5_GS_20p_old.joblib")
+    joblib.dump(best_model, "SVM_full-1_CV.joblib")
 
-    SVM.fit(FX, labels)
-    joblib.dump(SVM, "SVM_full-1_new.joblib") #TODO: wenn das nicht gut ist -> train on Solo
-    # print(f"Best f1_macro:  {SVM.score:.3f}")
+    # SVM.fit(FX, labels)
+    # joblib.dump(SVM, "SVM_full-1_solo.joblib") #TODO: wenn das nicht gut ist -> train on Solo
+    # # print(f"Best f1_macro:  {SVM.score:.3f}")
 
 
 

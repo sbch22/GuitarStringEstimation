@@ -1,3 +1,4 @@
+import configparser
 import os
 import sys
 
@@ -14,25 +15,11 @@ from collections import defaultdict
 from configparser import ConfigParser
 from pathlib import Path
 
+from gse.src import calculate_features
+
 
 def check_variance_homogeneity(string_values: List[np.ndarray],
                                test_type: str = "levene") -> Tuple[str, float, float]:
-    """
-    Test for homogeneity of variances using either Bartlett's or Levene's test.
-
-    Args:
-        string_values: List of arrays containing beta values for each string
-        test_type: Type of test to perform ("bartlett" or "levene")
-
-    Returns:
-        Tuple containing:
-        - Name of the test performed
-        - Test statistic
-        - p-value
-
-    Raises:
-        ValueError: If an invalid test type is specified
-    """
     if test_type == "bartlett":
         stat, p_value = bartlett(*string_values)
         test_name = "Bartlett's Test"
@@ -46,136 +33,218 @@ def check_variance_homogeneity(string_values: List[np.ndarray],
 
 
 def perform_welch_anova(string_values: List[np.ndarray]) -> Tuple[float, float]:
-    """
-    Perform Welch's ANOVA test on beta values from different strings.
-
-    Welch's ANOVA is used when the assumption of equal variances is violated.
-
-    Args:
-        string_values: List of arrays containing beta values for each string
-
-    Returns:
-        Tuple containing:
-        - F-statistic
-        - p-value
-    """
     f_stat, p_value_anova = f_oneway(*string_values)
     return f_stat, p_value_anova
 
-
-def plot_beta_distributions(betas: Dict[int, List[float]], beta_max) -> List[np.ndarray]:
-    """
-    Plot histograms of beta values for each guitar string with relative frequencies.
-
-    Args:
-        betas: Dictionary containing beta values for each string (keys are integers 0-5)
-
-    Returns:
-        List of arrays containing filtered beta values for each string
-    """
+def plot_beta_distributions(betas: Dict[int, List[float]]) -> List[np.ndarray]:
     colors = ['skyblue', 'red', 'green', 'orange', 'purple', 'brown']
+    string_labels = ['E2', 'A2', 'D3', 'G3', 'B3', 'E4']
     string_values = []
 
-    # Create histogram plot
-    # plt.figure(figsize=(8, 5))
-
-    # Process each string present in the dictionary
+    # --- Pass 1: collect all valid values to define global bins ---
+    all_values = []
     for string_index in sorted(betas.keys()):
-        string_name = f"String {string_index}"
+        values_raw = np.array(betas.get(string_index, []), dtype=float)
+        values = values_raw[np.isfinite(values_raw)]
+        all_values.append(values)
 
-        # Filter values to the valid range [0, 0.001]
-        values = np.array([w for w in betas.get(string_index, []) if 0 <= w <= beta_max])
+    global_min = min(v.min() for v in all_values if v.size > 0)
+    global_max = max(v.max() for v in all_values if v.size > 0)
+    global_max = 2e-4
+    global_bins = np.linspace(global_min, global_max, 201)  # 200 bins, uniform width
+    bin_width = global_bins[1] - global_bins[0]
+    bin_centers = (global_bins[:-1] + global_bins[1:]) / 2
 
-        # Print case count for this string
-        case_count = len(values)
-        print(f"{string_name}: {case_count} cases")
+    # --- Pass 2: individual plots + collect string_values ---
+    for string_index, values in zip(sorted(betas.keys()), all_values):
+        string_name = f"String {string_index} ({string_labels[string_index]})"
 
-        # Skip if no valid values
+        dropped = len(np.array(betas.get(string_index, []), dtype=float)) - len(values)
+        if dropped > 0:
+            print(f"{string_name}: dropped {dropped} non-finite values")
+        print(f"{string_name}: {len(values)} cases")
+
         if values.size == 0:
             print(f"No valid values for {string_name}.")
             continue
 
         string_values.append(values)
-        color = colors[string_index % len(colors)]  # Handle index safely
+        color = colors[string_index % len(colors)]
 
-        # Calculate histogram with absolute frequencies
-        hist_values, bins = np.histogram(values, bins=200, density=False)
-        bin_centers = (bins[:-1] + bins[1:]) / 2
-        bin_width = np.diff(bins)
-
-        # Convert to relative frequencies (sum to 1)
+        hist_values, _ = np.histogram(values, bins=global_bins, density=False)
         hist_values_rel = hist_values / np.sum(hist_values)
 
-        # # Create histogram plot
         plt.figure(figsize=(8, 5))
-        plt.bar(bin_centers, hist_values_rel, width=bin_width[0], alpha=0.6,
-                color=color, edgecolor='black', label="Relative Frequency")
-
-        plt.title(f'Relative Frequency: {string_name}')
-        plt.xlabel('Beta Values')
+        plt.bar(bin_centers, hist_values_rel, width=bin_width, alpha=0.6,
+                color=color, edgecolor='none', label="Relative Frequency")
+        plt.title(f'Beta Distribution: {string_name} 3rdtaylor')
+        plt.xlabel('Beta')
         plt.ylabel('Relative Frequency')
+        plt.xlim(global_min, global_max)
         plt.legend()
-        plt.xlim(0, 2e-4)
+        plt.tight_layout()
+
+    # --- Overlay plot ---
+    DPI = 1200  # change to taste
+    # overlay plot
+    fig, ax = plt.subplots(figsize=(8, 5), dpi=DPI)
+    for i, (string_index, values) in enumerate(zip(sorted(betas.keys()), string_values)):
+        color = colors[string_index % len(colors)]
+        label = f"String {string_index} ({string_labels[string_index]})"
+
+        hist_values, _ = np.histogram(values, bins=global_bins, density=False)
+        hist_values_norm = hist_values / hist_values.max()  # peak-normalised → all reach 1.0
+
+        ax.bar(bin_centers, hist_values_norm, width=bin_width,
+               alpha=0.4, color=color, edgecolor='none', label=label)
+        ax.plot(bin_centers, hist_values_norm, color=color, linewidth=1.2, alpha=0.85)
+
+    ax.set_title('Beta – Normierte Wahrscheinlichkeitsdichtefunktionen')
+    ax.set_ylabel('Normalisierte Wahrscheinlichkeit')
+    ax.set_xlabel('Beta')
+    ax.set_xlim(global_min, global_max)
+    ax.legend(loc='upper right')
+    fig.tight_layout()
+
     plt.show()
 
+
+    #
+    #
+    # # style pltos
+    # # ── Aesthetic settings ──────────────────────────────────────────────────────
+    # # rcParams['font.family'] = 'DejaVu Sans'
+    # # rcParams['axes.spines.top'] = False
+    # # rcParams['axes.spines.right'] = False
+    #
+    # DPI = 1000
+    #
+    # # ── Palette: 4 pastel blues ──────────────────────────────────────────────────
+    # fill_colors = ["#2E86C1", "#5DADE2", "#85C1E9", "#AED6F1"]
+    # edge_colors = ["#1A5276", "#2471A3", "#2E86C1", "#5DADE2"]
+    #
+    # # ── Figure ────────────────────────────────────────────────────────────────────
+    # fig, ax = plt.subplots(figsize=(10, 5.5), dpi=DPI)
+    #
+    # ax.yaxis.grid(True, color="#D6EAF8", linewidth=0.6, zorder=0)
+    # ax.set_axisbelow(True)
+    #
+    # patches_for_legend = []
+    # plot_entries = [(k, v) for k, v in zip(sorted(betas.keys()), string_values) if k > 1][:4]
+    #
+    # for i, (string_index, values) in enumerate(plot_entries):
+    #     hist_values, _ = np.histogram(values, bins=global_bins, density=False)
+    #     hist_norm = hist_values / hist_values.max()
+    #
+    #     fc = fill_colors[i]
+    #     ec = edge_colors[i]
+    #
+    #     ax.bar(
+    #         bin_centers, hist_norm,
+    #         width=bin_width * 0.92,
+    #         alpha=0.55,
+    #         color=fc,
+    #         edgecolor=ec,
+    #         linewidth=0.7,
+    #         zorder=2 + i,
+    #     )
+    #     ax.plot(
+    #         bin_centers, hist_norm,
+    #         color=ec,
+    #         linewidth=1.6,
+    #         alpha=0.90,
+    #         zorder=6 + i,
+    #     )
+    #     # patches_for_legend.append(
+    #     #     mpatches.Patch(facecolor=fc, edgecolor=ec, linewidth=0.9,
+    #     #                    alpha=0.75, label=f"String {string_index} ({string_labels[string_index]})")
+    #     # )
+    #
+    # # ── Spines ────────────────────────────────────────────────────────────────────
+    # for spine in ['left', 'bottom']:
+    #     ax.spines[spine].set_color("#5D8AA8")
+    #     ax.spines[spine].set_linewidth(0.8)
+    #
+    # # ── Labels & title ────────────────────────────────────────────────────────────
+    # ax.set_title("Beta – Normierte Wahrscheinlichkeitsdichtefunktionen",
+    #              fontsize=13, fontweight='bold', color="#1A5276", pad=12)
+    # ax.set_xlabel("Beta", fontsize=10, color="#1A5276", labelpad=6)
+    # ax.set_ylabel("Normalisierte Häufigkeit", fontsize=10, color="#1A5276", labelpad=6)
+    # ax.tick_params(colors="#5D8AA8", labelsize=8.5)
+    # ax.set_xlim(global_min, global_max)
+    # ax.set_ylim(0, 1.12)
+    #
+    # fig.patch.set_facecolor("#F4F9FC")
+    # ax.set_facecolor("#F4F9FC")
+    #
+    # fig.tight_layout(pad=1.4)
+    # plt.show()
     return string_values
 
 
-def main():
-    # read config
-    config = ConfigParser()
-    config.read('config_train_GuitarSet.ini')
-    beta_max = config.getfloat('train', 'beta_max')
+def main(config):
     track_directory = config.get('paths', 'track_directory')
-    print(f"Beta Max: {beta_max}")
+    audio_types_raw = config.get('paths', 'audio_types')
+    audio_types = [a.strip() for a in audio_types_raw.split(',')]
+    beta_max = config.getfloat('params', 'beta_max')
 
-    print(track_directory)
+    # --- Step 2: Calculate features ---
+    calculate_features.main(config)
 
+    # Collect all file paths
     filepaths = [
         os.path.join(track_directory, filename)
         for filename in os.listdir(track_directory)
+        if filename.endswith(".pkl")
         if os.path.isfile(os.path.join(track_directory, filename))
+        # and "comp" in filename
     ]
-
     # Initialize dictionary to collect betas by string index
     betas_by_string = {i: [] for i in range(6)}
 
-    for filepath in filepaths:
-        with open(filepath, "rb") as f:
-            try:
-                track = pickle.load(f)
-            except EOFError:
-                continue
 
-        for note in track.notes:
-            if note.valid is not True:
-                continue
-            if note.features is None:
-                continue
-            if note.features.betas is None:
-                continue
-
-            string_index = note.attributes.string_index
-            if note.origin == "single_note":
-                string_index += -1
-            betas_by_string[string_index].extend(note.features.betas)
+    all_notes = []
+    all_betas = []
 
 
-    cleaned_betas_by_string = plot_beta_distributions(betas_by_string, beta_max)
+    for audio_type in audio_types:
+        for filepath in filepaths:
+            with open(filepath, "rb") as f:
+                try:
+                    track = pickle.load(f)
+                except EOFError:
+                    continue
+
+            all_notes.extend(track.valid_notes)
+            for note in track.valid_notes:
+                if note.features[audio_type].beta is None:
+                    continue
+                if audio_type not in note.features:
+                    continue
+                string_index = note.attributes.string_index
+                if note.origin == "single_note":
+                    string_index += -1
+
+                betas_by_string[string_index].append(note.features[audio_type].beta)
+                all_betas.append(note.features[audio_type].beta)
 
 
-    # 👉 In ndarray umwandeln (object dtype, weil unterschiedlich lang)
+    cleaned_betas_by_string = plot_beta_distributions(betas_by_string)
+
     betas_by_string_ndarray = np.array(
         [np.array(cleaned_betas_by_string[i]) for i in range(6)],
         dtype=object
     )
-    # save ndarray in source folder as betas_dev.npy
 
     p = Path(track_directory)
 
     last_three = p.parts[-3:]
     betas_savename = "betas_" + "_".join(last_three) + ".npy"
     np.save(betas_savename, betas_by_string_ndarray)
+
+
+    print(f"Number of notes total: {len(all_notes)}\n")
+    print(f"Ratio of notes with beta: {len(all_betas)/len(all_notes)}\n")
 
 
 
@@ -191,4 +260,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # test on the following subsets:
+    config = configparser.ConfigParser()
+    config.read('configs/config_test_solo.ini')
+
+    main(config)
+    # main(subset_comp)
+    # main(subset_GOAT)
+    # main(subset_single_note_IDMT)

@@ -451,9 +451,10 @@ def main(track_directory, audio_type):
 
 if __name__ == "__main__":
     # TODO: choose which test and train sets to call the classification upon
-    # main('../noteData/GuitarSet/train/', audio_type="hex_debleeded")
+
+    main('../noteData/GuitarSet/train/', audio_type="hex_debleeded")
     # main('../noteData/GuitarSet/test/solo/', audio_type="hex_debleeded")
     # main('../noteData/GuitarSet/test/comp/', audio_type="hex_debleeded")
 
-    main( track_directory='../noteData/GOAT/test/', audio_type="clean")
-    main( track_directory='../noteData/GOAT/train/', audio_type="clean")
+    # main( track_directory='../noteData/GOAT/test/', audio_type="clean")
+    # main( track_directory='../noteData/GOAT/train/', audio_type="clean")

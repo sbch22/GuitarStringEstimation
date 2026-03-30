@@ -256,8 +256,7 @@ def kde_mode(data):
         return np.nan
 
 
-
-def estimate_inharmonicity_coefficient_all_frets(partials, plot, min_partials=4):
+def estimate_inharmonicity_coefficient_all_frets(partials, min_partials=4):
     freqs = partials.frequencies  # (T, K)
     T, K = freqs.shape
     betas = np.full(T, np.nan)
@@ -289,7 +288,6 @@ def estimate_inharmonicity_coefficient_all_frets(partials, plot, min_partials=4)
             # Eq. (17): beta
             beta = 2 * a / (f0 + b)
 
-
             # sanity checks
             if np.isfinite(beta) and beta > 0:
                 betas[i] = beta
@@ -297,8 +295,70 @@ def estimate_inharmonicity_coefficient_all_frets(partials, plot, min_partials=4)
         except np.linalg.LinAlgError:
             continue
 
+        # ── Plot (nur wenn ≥ 15 gültige Partiale) ────────────────────────
+        if i ==20:
+            k_plot = np.linspace(1, K, 400)
+            poly_curve = a * k_plot**3 + b * k_plot + c
+
+            ACCENT  = "#1565c0"
+            DOT_NAN = "#c62828"
+            GRID    = "#d0d0d0"
+
+            fig, ax = plt.subplots(figsize=(9, 4.5))
+            fig.patch.set_facecolor("white")
+            ax.set_facecolor("white")
+
+            # ungültige Partiale als Rug
+            k_invalid = k_full[~valid]
+            if len(k_invalid):
+                ax.scatter(k_invalid, np.zeros(len(k_invalid)),
+                           marker="|", s=140, linewidths=1.8, color=DOT_NAN,
+                           alpha=0.85, zorder=3, clip_on=False,
+                           transform=ax.get_xaxis_transform())
+
+            ax.scatter(k, c_k, s=50, color="white", edgecolors=ACCENT,
+                       linewidths=1.2, zorder=5)
+            ax.plot(k_plot, poly_curve, color=ACCENT, linewidth=2.0, zorder=4)
+            ax.axhline(0, color=GRID, linewidth=0.9, linestyle="--", zorder=1)
+
+            ax.text(0.97, 0.95, rf"$\hat{{\beta}} = {beta:.3e}$",
+                    transform=ax.transAxes, ha="right", va="top",
+                    fontsize=10, color="black",
+                    bbox=dict(boxstyle="round,pad=0.4", facecolor="white",
+                              edgecolor=GRID, alpha=0.9))
+
+            ax.set_xlabel("Partialtonordnung  $k$", fontsize=12)
+            ax.set_ylabel(r"Frequenzabweichung  $c_k$  in Hz", fontsize=12)
+            ax.set_title(f"Inharmonizität — Frequenzabweichung  F0: {f0:.2f}",
+                         fontsize=13, pad=10, fontweight="semibold")
+            ax.set_xlim(0.5, K + 0.5)
+            ax.xaxis.set_major_locator(ticker.MultipleLocator(2))
+            ax.xaxis.set_minor_locator(ticker.MultipleLocator(1))
+            for spine in ax.spines.values():
+                spine.set_edgecolor("#aaaaaa")
+            ax.tick_params(colors="black", which="both")
+            ax.grid(True, color=GRID, linewidth=0.5, linestyle="--", alpha=0.8)
+
+            legend_handles = [
+                Line2D([0],[0], marker="o", color="none", markerfacecolor="white",
+                       markeredgecolor=ACCENT, markeredgewidth=1.2, markersize=7,
+                       label=r"$c_k = f_k - k\,f_0$  (gemessen)"),
+                Line2D([0],[0], color=ACCENT, linewidth=2,
+                       label=r"Polynomfit  $a k^3 + b k + c$"),
+            ]
+            if len(k_invalid):
+                legend_handles.append(
+                    Line2D([0],[0], marker="|", color=DOT_NAN, markersize=9,
+                           markeredgewidth=1.8, linestyle="none",
+                           label="Ungültiger Partial (NaN)"))
+            ax.legend(handles=legend_handles, facecolor="white", edgecolor=GRID,
+                      fontsize=9.5, loc="upper left")
+
+            fig.tight_layout()
+            plt.show()
+
     # IQR Filter on betas directly from fitting
-    betas = filter_betas(betas, 1e-3) # high beta max -> capture everything first
+    betas = filter_betas(betas, 1e-3)  # high beta max -> capture everything first
     return betas
 
 
@@ -341,6 +401,7 @@ MAX_F0_JUMP_SEMITONES      = 0.5
 MAX_PARTIAL_JUMP_SEMITONES = 1.0
 SEARCH_SEMITONES_F0        = 0.5   # kept tight: f0 error multiplies into every partial
 SEARCH_SEMITONES_PARTIAL   = 1.0   # scales in Hz with k; hard-capped at f0/2
+
 
 def find_partials(
     fft_frames: np.ndarray,
@@ -663,7 +724,7 @@ def process_single_file(args):
 
                 # ---- estimate β from the current partial positions -----------------
                 betas = estimate_inharmonicity_coefficient_all_frets(
-                    note.partials[audio_type], plot=(string_idx == 4 or string_idx == 5),)
+                    note.partials[audio_type],)
 
                 num_iterations = i
 
@@ -709,7 +770,7 @@ def process_single_file(args):
 
             # ── Final plot after convergence ──────────────────────────────────────────
             # if note.attributes.string_index == 0 or note.attributes.string_index == 1:
-            if True:
+            if False:
                 n_frames = fft_frames.shape[0]
                 n_bins = fft_frames.shape[1]
                 freq_axis = np.arange(n_bins, dtype=float) * sr / W
@@ -720,7 +781,7 @@ def process_single_file(args):
 
                 times_frames = np.arange(n_frames) * (H / sr)
 
-                fig, ax = plt.subplots(figsize=(12, 8))
+                fig, ax = plt.subplots(figsize=(14, 14))
                 pcm = ax.pcolormesh(
                     times_frames, freq_axis, fft_norm_db.T,
                     shading="auto", cmap="magma",
@@ -729,28 +790,21 @@ def process_single_file(args):
                 )
 
                 for p in range(partial_freqs.shape[1]):
-                    ax.plot(
-                        times_frames,
-                        partial_freqs[:, p],
-                        linewidth=1.5,
-                        color="lime",
-                        alpha=0.85,
-                        label="Gefundene Partialtöne" if p == 0 else None
-                    )
+                    ax.plot(times_frames, partial_freqs[:, p],
+                            linewidth=1.5, color="lime", alpha=0.85)
 
                 ax.set_ylim(80, min(8000, sr / 2))
-                ax.set_xlabel("Zeit in s")
-                ax.set_ylabel("Frequenz in Hz")
-                ax.legend()
+                ax.set_xlabel("Time (s)")
+                ax.set_ylabel("Frequency (Hz)")
                 ax.set_title(
-                    f"Inharmonische Partialtontschätzung — {note.attributes.pitch} Hz\n Saite: {note.attributes.string_index}"
-                    f"  |  F0={f0:.1f} Hz  |  β={beta0:.2e} |  Iteration: {num_iterations}"
+                    f"Inharmonic partial tracking — {note.attributes.pitch}\n string: {note.attributes.string_index}"
+                    f"  |  f0={f0:.1f} Hz  |  β={beta0:.2e}  |  {partial_freqs.shape[1]} partials \n Itration: {num_iterations}"
                 )
                 plt.colorbar(pcm, ax=ax, label="Magnitude (dB)")
                 plt.tight_layout()
                 plt.show()
-            """ Features """
 
+            """ Features """
             # assign attributed f0 to features
             note.features[audio_type].f0 = note.attributes.pitch
 
@@ -819,7 +873,7 @@ def main(config):
 
     args_list = [(fp, beta_max, plot, threshold, W,H, audio_types) for fp in filepaths]
 
-    # # Create pool and process files
+    # Create pool and process files
     # num_processes = mp.cpu_count() - 1  # Leave one core free
     # with mp.Pool(processes=num_processes) as pool:
     #     results = pool.map(process_single_file, args_list)

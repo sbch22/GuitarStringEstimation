@@ -1,7 +1,7 @@
 import pickle
 
 # path to your saved track
-track_path = "../noteData/GuitarSet/train/dev/01_BN1-147-Gb_solo_track.pkl"
+track_path = "../noteData/GuitarSet/train/00_Rock2-142-D_solo_track.pkl"
 # load it back
 with open(track_path, "rb") as f:
     track = pickle.load(f)
