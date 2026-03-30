@@ -342,7 +342,6 @@ MAX_PARTIAL_JUMP_SEMITONES = 1.0
 SEARCH_SEMITONES_F0        = 0.5   # kept tight: f0 error multiplies into every partial
 SEARCH_SEMITONES_PARTIAL   = 1.0   # scales in Hz with k; hard-capped at f0/2
 
-
 def find_partials(
     fft_frames: np.ndarray,
     f0_guess: float,
