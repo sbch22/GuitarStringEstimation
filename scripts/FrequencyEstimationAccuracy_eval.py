@@ -11,8 +11,8 @@ def parabolic_interpolation(idx: int, data: np.ndarray) -> Tuple[float, float, f
     Perform parabolic interpolation around a peak index to get a more accurate position.
 
     Args:
-        idx: Index of the peak in the data array
-        data: Array of data values
+        idx: Index of the peak in the noteData array
+        data: Array of noteData values
 
     Returns:
         Tuple containing:

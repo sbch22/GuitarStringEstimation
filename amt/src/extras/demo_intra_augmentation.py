@@ -15,7 +15,7 @@ from utils.datasets_train import get_cache_data_loader
 
 
 def get_filelist(track_id: int) -> dict:
-    filelist = '../../data/yourmt3_indexes/slakh_train_file_list.json'
+    filelist = '../../noteData/yourmt3_indexes/slakh_train_file_list.json'
     with open(filelist, 'r') as f:
         fl = json.load(f)
     new_filelist = dict()

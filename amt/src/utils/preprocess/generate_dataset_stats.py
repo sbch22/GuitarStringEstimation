@@ -45,7 +45,7 @@ def generate_dataset_stats_for_all_datasets(dataset_path: os.PathLike):
     # Save counts as json
     with open(output_file, 'w') as f:
         json.dump(counts, f, indent=4)
-    print(f'Saved data counts to {output_file}')
+    print(f'Saved noteData counts to {output_file}')
 
 
 def update_dataset_stats_for_new_dataset(dataset_path: os.PathLike, split_file_name: str):
@@ -59,5 +59,5 @@ if __name__ == '__main__':
         generate_dataset_stats_for_all_datasets(dataset_path)
     else:
         print('Usage: generate_dataset_stats.py <dataset_path>')
-        print('Example: python count_events_and_files_from_dataset.py ../../data')
+        print('Example: python count_events_and_files_from_dataset.py ../../noteData')
         sys.exit(1)

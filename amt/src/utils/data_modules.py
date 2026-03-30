@@ -96,7 +96,7 @@ class AMTDataModule(LightningDataModule):
         self.train_stem_xaug_policy = train_stem_xaug_policy
         self.train_pitch_shift_range = train_pitch_shift_range
 
-        # train data info
+        # train noteData info
         self.train_data_info = None  # to be set in setup()
 
         # validation/test max num of files
@@ -129,11 +129,11 @@ class AMTDataModule(LightningDataModule):
 
     def setup(self, stage: str):
         """
-        Prepare data args for the dataloaders to be used on each stage.
+        Prepare noteData args for the dataloaders to be used on each stage.
         `stage` is automatically passed by pytorch lightning Trainer.
         """
         if stage == "fit":
-            # Set up train data info
+            # Set up train noteData info
             self.set_merged_train_data_info()
 
             # Distributed Weighted random sampler for training

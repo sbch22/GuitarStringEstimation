@@ -36,65 +36,114 @@ from model.ymt3 import YourMT3
 def load_model_checkpoint(args=None):
     parser = argparse.ArgumentParser(description="YourMT3")
     # General
-    parser.add_argument('exp_id', type=str, help='A unique identifier for the experiment is used to resume training. The "@" symbol can be used to load a specific checkpoint.')
+    parser.add_argument('exp_id', type=str,
+                        help='A unique identifier for the experiment is used to resume training. The "@" symbol can be used to load a specific checkpoint.')
     parser.add_argument('-p', '--project', type=str, default='ymt3', help='project name')
-    parser.add_argument('-ac', '--audio-codec', type=str, default=None, help='audio codec (default=None). {"spec", "melspec"}. If None, default value defined in config.py will be used.')
-    parser.add_argument('-hop', '--hop-length', type=int, default=None, help='hop length in frames (default=None). {128, 300} 128 for MT3, 300 for PerceiverTFIf None, default value defined in config.py will be used.')
-    parser.add_argument('-nmel', '--n-mels', type=int, default=None, help='number of mel bins (default=None). If None, default value defined in config.py will be used.')
-    parser.add_argument('-if', '--input-frames', type=int, default=None, help='number of audio frames for input segment (default=None). If None, default value defined in config.py will be used.')
+    parser.add_argument('-ac', '--audio-codec', type=str, default=None,
+                        help='audio codec (default=None). {"spec", "melspec"}. If None, default value defined in config.py will be used.')
+    parser.add_argument('-hop', '--hop-length', type=int, default=None,
+                        help='hop length in frames (default=None). {128, 300} 128 for MT3, 300 for PerceiverTFIf None, default value defined in config.py will be used.')
+    parser.add_argument('-nmel', '--n-mels', type=int, default=None,
+                        help='number of mel bins (default=None). If None, default value defined in config.py will be used.')
+    parser.add_argument('-if', '--input-frames', type=int, default=None,
+                        help='number of audio frames for input segment (default=None). If None, default value defined in config.py will be used.')
     # Model configurations
-    parser.add_argument('-sqr', '--sca-use-query-residual', type=str2bool, default=None, help='sca use query residual flag. Default follows config.py')
-    parser.add_argument('-enc', '--encoder-type', type=str, default=None, help="Encoder type. 't5' or 'perceiver-tf' or 'conformer'. Default is 't5', following config.py.")
-    parser.add_argument('-dec', '--decoder-type', type=str, default=None, help="Decoder type. 't5' or 'multi-t5'. Default is 't5', following config.py.")
-    parser.add_argument('-preenc', '--pre-encoder-type', type=str, default='default', help="Pre-encoder type. None or 'conv' or 'default'. By default, t5_enc:None, perceiver_tf_enc:conv, conformer:None")
-    parser.add_argument('-predec', '--pre-decoder-type', type=str, default='default', help="Pre-decoder type. {None, 'linear', 'conv1', 'mlp', 'group_linear'} or 'default'. Default is {'t5': None, 'perceiver-tf': 'linear', 'conformer': None}.")
-    parser.add_argument('-cout', '--conv-out-channels', type=int, default=None, help='Number of filters for pre-encoder conv layer. Default follows "model_cfg" of config.py.')
-    parser.add_argument('-tenc', '--task-cond-encoder', type=str2bool, default=True, help='task conditional encoder (default=True). True or False')
-    parser.add_argument('-tdec', '--task-cond-decoder', type=str2bool, default=True, help='task conditional decoder (default=True). True or False')
-    parser.add_argument('-df', '--d-feat', type=int, default=None, help='Audio feature will be projected to this dimension for Q,K,V of T5 or K,V of Perceiver (default=None). If None, default value defined in config.py will be used.')
-    parser.add_argument('-pt', '--pretrained', type=str2bool, default=False, help='pretrained T5(default=False). True or False')
-    parser.add_argument('-b', '--base-name', type=str, default="google/t5-v1_1-small", help='base model name (default="google/t5-v1_1-small")')
-    parser.add_argument('-epe', '--encoder-position-encoding-type', type=str, default='default', help="Positional encoding type of encoder. By default, pre-defined PE for T5 or Perceiver-TF encoder in config.py. For T5: {'sinusoidal', 'trainable'}, conformer: {'rotary', 'trainable'}, Perceiver-TF: {'trainable', 'rope', 'alibi', 'alibit', 'None', '0', 'none', 'tkd', 'td', 'tk', 'kdt'}.")
-    parser.add_argument('-dpe', '--decoder-position-encoding-type', type=str, default='default', help="Positional encoding type of decoder. By default, pre-defined PE for T5 in config.py. {'sinusoidal', 'trainable'}.")
-    parser.add_argument('-twe', '--tie-word-embedding', type=str2bool, default=None, help='tie word embedding (default=None). If None, default value defined in config.py will be used.')
-    parser.add_argument('-el', '--event-length', type=int, default=None, help='event length (default=None). If None, default value defined in model cfg of config.py will be used.')
+    parser.add_argument('-sqr', '--sca-use-query-residual', type=str2bool, default=None,
+                        help='sca use query residual flag. Default follows config.py')
+    parser.add_argument('-enc', '--encoder-type', type=str, default=None,
+                        help="Encoder type. 't5' or 'perceiver-tf' or 'conformer'. Default is 't5', following config.py.")
+    parser.add_argument('-dec', '--decoder-type', type=str, default=None,
+                        help="Decoder type. 't5' or 'multi-t5'. Default is 't5', following config.py.")
+    parser.add_argument('-preenc', '--pre-encoder-type', type=str, default='default',
+                        help="Pre-encoder type. None or 'conv' or 'default'. By default, t5_enc:None, perceiver_tf_enc:conv, conformer:None")
+    parser.add_argument('-predec', '--pre-decoder-type', type=str, default='default',
+                        help="Pre-decoder type. {None, 'linear', 'conv1', 'mlp', 'group_linear'} or 'default'. Default is {'t5': None, 'perceiver-tf': 'linear', 'conformer': None}.")
+    parser.add_argument('-cout', '--conv-out-channels', type=int, default=None,
+                        help='Number of filters for pre-encoder conv layer. Default follows "model_cfg" of config.py.')
+    parser.add_argument('-tenc', '--task-cond-encoder', type=str2bool, default=True,
+                        help='task conditional encoder (default=True). True or False')
+    parser.add_argument('-tdec', '--task-cond-decoder', type=str2bool, default=True,
+                        help='task conditional decoder (default=True). True or False')
+    parser.add_argument('-df', '--d-feat', type=int, default=None,
+                        help='Audio feature will be projected to this dimension for Q,K,V of T5 or K,V of Perceiver (default=None). If None, default value defined in config.py will be used.')
+    parser.add_argument('-pt', '--pretrained', type=str2bool, default=False,
+                        help='pretrained T5(default=False). True or False')
+    parser.add_argument('-b', '--base-name', type=str, default="google/t5-v1_1-small",
+                        help='base model name (default="google/t5-v1_1-small")')
+    parser.add_argument('-epe', '--encoder-position-encoding-type', type=str, default='default',
+                        help="Positional encoding type of encoder. By default, pre-defined PE for T5 or Perceiver-TF encoder in config.py. For T5: {'sinusoidal', 'trainable'}, conformer: {'rotary', 'trainable'}, Perceiver-TF: {'trainable', 'rope', 'alibi', 'alibit', 'None', '0', 'none', 'tkd', 'td', 'tk', 'kdt'}.")
+    parser.add_argument('-dpe', '--decoder-position-encoding-type', type=str, default='default',
+                        help="Positional encoding type of decoder. By default, pre-defined PE for T5 in config.py. {'sinusoidal', 'trainable'}.")
+    parser.add_argument('-twe', '--tie-word-embedding', type=str2bool, default=None,
+                        help='tie word embedding (default=None). If None, default value defined in config.py will be used.')
+    parser.add_argument('-el', '--event-length', type=int, default=None,
+                        help='event length (default=None). If None, default value defined in model cfg of config.py will be used.')
     # Perceiver-TF configurations
-    parser.add_argument('-dl', '--d-latent', type=int, default=None, help='Latent dimension of Perceiver. On T5, this will be ignored (default=None). If None, default value defined in config.py will be used.')
-    parser.add_argument('-nl', '--num-latents', type=int, default=None, help='Number of latents of Perceiver. On T5, this will be ignored (default=None). If None, default value defined in config.py will be used.')
-    parser.add_argument('-dpm', '--perceiver-tf-d-model', type=int, default=None, help='Perceiver-TF d_model (default=None). If None, default value defined in config.py will be used.')
-    parser.add_argument('-npb', '--num-perceiver-tf-blocks', type=int, default=None, help='Number of blocks of Perceiver-TF. On T5, this will be ignored (default=None). If None, default value defined in config.py.')
-    parser.add_argument('-npl', '--num-perceiver-tf-local-transformers-per-block', type=int, default=None, help='Number of local layers per block of Perceiver-TF. On T5, this will be ignored (default=None). If None, default value defined in config.py will be used.')
-    parser.add_argument('-npt', '--num-perceiver-tf-temporal-transformers-per-block', type=int, default=None, help='Number of temporal layers per block of Perceiver-TF. On T5, this will be ignored (default=None). If None, default value defined in config.py will be used.')
-    parser.add_argument('-atc', '--attention-to-channel', type=str2bool, default=None, help='Attention to channel flag of Perceiver-TF. On T5, this will be ignored (default=None). If None, default value defined in config.py will be used.')
-    parser.add_argument('-ln', '--layer-norm-type', type=str, default=None, help='Layer normalization type (default=None). {"layer_norm", "rms_norm"}. If None, default value defined in config.py will be used.')
-    parser.add_argument('-ff', '--ff-layer-type', type=str, default=None, help='Feed forward layer type (default=None). {"mlp", "moe", "gmlp"}. If None, default value defined in config.py will be used.')
-    parser.add_argument('-wf', '--ff-widening-factor', type=int, default=None, help='Feed forward layer widening factor for MLP/MoE/gMLP (default=None). If None, default value defined in config.py will be used.')
-    parser.add_argument('-nmoe', '--moe-num-experts', type=int, default=None, help='Number of experts for MoE (default=None). If None, default value defined in config.py will be used.')
-    parser.add_argument('-kmoe', '--moe-topk', type=int, default=None, help='Top-k for MoE (default=None). If None, default value defined in config.py will be used.')
-    parser.add_argument('-act', '--hidden-act', type=str, default=None, help='Hidden activation function (default=None). {"gelu", "silu", "relu", "tanh"}. If None, default value defined in config.py will be used.')
-    parser.add_argument('-rt', '--rotary-type', type=str, default=None, help='Rotary embedding type expressed in three letters. e.g. ppl: "pixel" for SCA and latents, "lang" for temporal transformer. If None, use config.')
-    parser.add_argument('-rk', '--rope-apply-to-keys', type=str2bool, default=None, help='Apply rope to keys (default=None). If None, use config.')
-    parser.add_argument('-rp', '--rope-partial-pe', type=str2bool, default=None, help='Whether to apply RoPE to partial positions (default=None). If None, use config.')
+    parser.add_argument('-dl', '--d-latent', type=int, default=None,
+                        help='Latent dimension of Perceiver. On T5, this will be ignored (default=None). If None, default value defined in config.py will be used.')
+    parser.add_argument('-nl', '--num-latents', type=int, default=None,
+                        help='Number of latents of Perceiver. On T5, this will be ignored (default=None). If None, default value defined in config.py will be used.')
+    parser.add_argument('-dpm', '--perceiver-tf-d-model', type=int, default=None,
+                        help='Perceiver-TF d_model (default=None). If None, default value defined in config.py will be used.')
+    parser.add_argument('-npb', '--num-perceiver-tf-blocks', type=int, default=None,
+                        help='Number of blocks of Perceiver-TF. On T5, this will be ignored (default=None). If None, default value defined in config.py.')
+    parser.add_argument('-npl', '--num-perceiver-tf-local-transformers-per-block', type=int, default=None,
+                        help='Number of local layers per block of Perceiver-TF. On T5, this will be ignored (default=None). If None, default value defined in config.py will be used.')
+    parser.add_argument('-npt', '--num-perceiver-tf-temporal-transformers-per-block', type=int, default=None,
+                        help='Number of temporal layers per block of Perceiver-TF. On T5, this will be ignored (default=None). If None, default value defined in config.py will be used.')
+    parser.add_argument('-atc', '--attention-to-channel', type=str2bool, default=None,
+                        help='Attention to channel flag of Perceiver-TF. On T5, this will be ignored (default=None). If None, default value defined in config.py will be used.')
+    parser.add_argument('-ln', '--layer-norm-type', type=str, default=None,
+                        help='Layer normalization type (default=None). {"layer_norm", "rms_norm"}. If None, default value defined in config.py will be used.')
+    parser.add_argument('-ff', '--ff-layer-type', type=str, default=None,
+                        help='Feed forward layer type (default=None). {"mlp", "moe", "gmlp"}. If None, default value defined in config.py will be used.')
+    parser.add_argument('-wf', '--ff-widening-factor', type=int, default=None,
+                        help='Feed forward layer widening factor for MLP/MoE/gMLP (default=None). If None, default value defined in config.py will be used.')
+    parser.add_argument('-nmoe', '--moe-num-experts', type=int, default=None,
+                        help='Number of experts for MoE (default=None). If None, default value defined in config.py will be used.')
+    parser.add_argument('-kmoe', '--moe-topk', type=int, default=None,
+                        help='Top-k for MoE (default=None). If None, default value defined in config.py will be used.')
+    parser.add_argument('-act', '--hidden-act', type=str, default=None,
+                        help='Hidden activation function (default=None). {"gelu", "silu", "relu", "tanh"}. If None, default value defined in config.py will be used.')
+    parser.add_argument('-rt', '--rotary-type', type=str, default=None,
+                        help='Rotary embedding type expressed in three letters. e.g. ppl: "pixel" for SCA and latents, "lang" for temporal transformer. If None, use config.')
+    parser.add_argument('-rk', '--rope-apply-to-keys', type=str2bool, default=None,
+                        help='Apply rope to keys (default=None). If None, use config.')
+    parser.add_argument('-rp', '--rope-partial-pe', type=str2bool, default=None,
+                        help='Whether to apply RoPE to partial positions (default=None). If None, use config.')
     # Decoder configurations
-    parser.add_argument('-dff', '--decoder-ff-layer-type', type=str, default=None, help='Feed forward layer type of decoder (default=None). {"mlp", "moe", "gmlp"}. If None, default value defined in config.py will be used.')
-    parser.add_argument('-dwf', '--decoder-ff-widening-factor', type=int, default=None, help='Feed forward layer widening factor for decoder MLP/MoE/gMLP (default=None). If None, default value defined in config.py will be used.')
+    parser.add_argument('-dff', '--decoder-ff-layer-type', type=str, default=None,
+                        help='Feed forward layer type of decoder (default=None). {"mlp", "moe", "gmlp"}. If None, default value defined in config.py will be used.')
+    parser.add_argument('-dwf', '--decoder-ff-widening-factor', type=int, default=None,
+                        help='Feed forward layer widening factor for decoder MLP/MoE/gMLP (default=None). If None, default value defined in config.py will be used.')
     # Task and Evaluation configurations
-    parser.add_argument('-tk', '--task', type=str, default='mt3_full_plus', help='tokenizer type (default=mt3_full_plus). See config/task.py for more options.')
-    parser.add_argument('-epv', '--eval-program-vocab', type=str, default=None, help='evaluation vocabulary (default=None). If None, default vocabulary of the data preset will be used.')
-    parser.add_argument('-edv', '--eval-drum-vocab', type=str, default=None, help='evaluation vocabulary for drum (default=None). If None, default vocabulary of the data preset will be used.')
-    parser.add_argument('-etk', '--eval-subtask-key', type=str, default='default', help='evaluation subtask key (default=default). See config/task.py for more options.')
+    parser.add_argument('-tk', '--task', type=str, default='mt3_full_plus',
+                        help='tokenizer type (default=mt3_full_plus). See config/task.py for more options.')
+    parser.add_argument('-epv', '--eval-program-vocab', type=str, default=None,
+                        help='evaluation vocabulary (default=None). If None, default vocabulary of the noteData preset will be used.')
+    parser.add_argument('-edv', '--eval-drum-vocab', type=str, default=None,
+                        help='evaluation vocabulary for drum (default=None). If None, default vocabulary of the noteData preset will be used.')
+    parser.add_argument('-etk', '--eval-subtask-key', type=str, default='default',
+                        help='evaluation subtask key (default=default). See config/task.py for more options.')
     parser.add_argument('-t', '--onset-tolerance', type=float, default=0.05, help='onset tolerance (default=0.05).')
-    parser.add_argument('-os', '--test-octave-shift', type=str2bool, default=False, help='test optimal octave shift (default=False). True or False')
-    parser.add_argument('-w', '--write-model-output', type=str2bool, default=True, help='write model test output to file (default=False). True or False')
+    parser.add_argument('-os', '--test-octave-shift', type=str2bool, default=False,
+                        help='test optimal octave shift (default=False). True or False')
+    parser.add_argument('-w', '--write-model-output', type=str2bool, default=True,
+                        help='write model test output to file (default=False). True or False')
     # Trainer configurations
-    parser.add_argument('-pr','--precision', type=str, default="bf16-mixed", help='precision (default="bf16-mixed") {32, 16, bf16, bf16-mixed}')
-    parser.add_argument('-st', '--strategy', type=str, default='auto', help='strategy (default=auto). auto or deepspeed or ddp')
+    parser.add_argument('-pr', '--precision', type=str, default="bf16-mixed",
+                        help='precision (default="bf16-mixed") {32, 16, bf16, bf16-mixed}')
+    parser.add_argument('-st', '--strategy', type=str, default='auto',
+                        help='strategy (default=auto). auto or deepspeed or ddp')
     parser.add_argument('-n', '--num-nodes', type=int, default=1, help='number of nodes (default=1)')
     parser.add_argument('-g', '--num-gpus', type=str, default='auto', help='number of gpus (default="auto")')
-    parser.add_argument('-wb', '--wandb-mode', type=str, default="disabled", help='wandb mode for logging (default=None). "disabled" or "online" or "offline". If None, default value defined in config.py will be used.')
+    parser.add_argument('-wb', '--wandb-mode', type=str, default="disabled",
+                        help='wandb mode for logging (default=None). "disabled" or "online" or "offline". If None, default value defined in config.py will be used.')
     # Debug
-    parser.add_argument('-debug', '--debug-mode', type=str2bool, default=False, help='debug mode (default=False). True or False')
-    parser.add_argument('-tps', '--test-pitch-shift', type=int, default=None, help='use pitch shift when testing. debug-purpose only. (default=None). semitone in int.')
+    parser.add_argument('-debug', '--debug-mode', type=str2bool, default=False,
+                        help='debug mode (default=False). True or False')
+    parser.add_argument('-tps', '--test-pitch-shift', type=int, default=None,
+                        help='use pitch shift when testing. debug-purpose only. (default=None). semitone in int.')
     args = parser.parse_args(args)
     # yapf: enable
     if torch.__version__ >= "1.13":
@@ -126,15 +175,14 @@ def load_model_checkpoint(args=None):
         task_manager=tm,  # tokenizer is a member of task_manager
         eval_subtask_key=args.eval_subtask_key,
         write_output_dir=dir_info["lightning_dir"] if args.write_model_output or args.test_octave_shift else None
-        ).to(device)
+    ).to(device)
     checkpoint = torch.load(dir_info["last_ckpt_path"], map_location=device)
     state_dict = checkpoint['state_dict']
     new_state_dict = {k: v for k, v in state_dict.items() if 'pitchshift' not in k}
-    
+
     model.load_state_dict(new_state_dict, strict=False)
 
     return model.eval()
-
 
 
 def prepare_media(audio_array: torch.Tensor, sample_rate: int) -> Dict:
@@ -173,12 +221,11 @@ def prepare_media(audio_array: torch.Tensor, sample_rate: int) -> Dict:
     }
 
 
-
 def transcribe_file_notes(model, audio_file: np.ndarray, sample_rate: int) -> List:
     """
     Process audio file to extract musical notes using a trained model.
 
-    This function prepares audio data and uses a machine learning model
+    This function prepares audio noteData and uses a machine learning model
     to transcribe musical notes from the audio signal.
 
     Args:
@@ -200,7 +247,6 @@ def transcribe_file_notes(model, audio_file: np.ndarray, sample_rate: int) -> Li
     pred_notes = transcribe_notes(model, audio_info, audio_tensor, sample_rate)
 
     return pred_notes
-
 
 
 def transcribe_notes(model, audio_info: Dict, audio_tensor: torch.Tensor, sample_rate: int) -> List:
@@ -239,7 +285,7 @@ def transcribe_notes(model, audio_info: Dict, audio_tensor: torch.Tensor, sample
     segment_length = model.audio_cfg['input_frames']
     audio_segments = slice_padded_array(audio_tensor.numpy(), segment_length, segment_length)
 
-    # Move data to appropriate device (GPU if available)
+    # Move noteData to appropriate device (GPU if available)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     audio_segments = torch.from_numpy(audio_segments.astype('float32')).to(device).unsqueeze(1)
 
@@ -293,7 +339,7 @@ def transcribe_notes(model, audio_info: Dict, audio_tensor: torch.Tensor, sample
 
 
 def extract_GT(annotation_filename):
-    annotation_directory = '../../data/guitarset_yourmt3_16k/annotation/'
+    annotation_directory = '../../noteData/guitarset_yourmt3_16k/annotation/'
     annotation_filepath = os.path.join(annotation_directory, annotation_filename)
 
     if os.path.exists(annotation_filepath):
@@ -310,24 +356,6 @@ def extract_GT(annotation_filename):
     notes = data['notes']
     return notes
 
-
-
-def estimate_frequency_and_amplitude(prev_phase, current_phase, k, W, H, sr, frame, window):
-    if k < 0 or k >= W // 2:
-        raise ValueError("Bin index k is out of bounds.")
-
-    omega_k = 2 * np.pi * k / W  # Digitale Frequenz bei Bin k
-
-    epsilon = 1e-10
-    delta_phi = omega_k * H + np.mod(current_phase - prev_phase - omega_k * H + np.pi + epsilon, 2 * np.pi) - np.pi
-
-    est_freq = delta_phi / (2 * np.pi * H) * sr
-
-    n = np.arange(W)
-    dft_coeff = np.dot(frame * window, np.exp(1j * 2 * np.pi * est_freq / sr * n))
-    est_amplitude = 2 * np.abs(dft_coeff) / np.sum(window)
-
-    return est_freq, est_amplitude
 
 
 
@@ -715,8 +743,8 @@ def plot_frequency_traces(frame_times, model_freqs, contour_fundamentals, phase_
 def filter_outliers_iqr(beta_values, debug=False):
     """Filter outliers from beta values using IQR method."""
     beta_array = np.array(beta_values)
-    Q1 = np.quantile(beta_array, 0.1)
-    Q3 = np.quantile(beta_array, 0.9)
+    Q1 = np.quantile(beta_array, 0.25)
+    Q3 = np.quantile(beta_array, 0.75)
     IQR = Q3 - Q1
     lower_bound = Q1 - 1.5 * IQR
     upper_bound = Q3 + 1.5 * IQR
@@ -862,7 +890,7 @@ def process_file(
     4. Save results to files
 
     Args:
-        audio_signal: Multi-channel audio data with shape (samples, 6 channels)
+        audio_signal: Multi-channel audio noteData with shape (samples, 6 channels)
         sample_rate: Sampling rate in Hz
         ground_truth_notes: Reference note annotations for comparison
         beta_storage: Dictionary to store beta values for each string
@@ -992,7 +1020,7 @@ def main():
     model = load_model_checkpoint(args=args)
 
     # Set up file paths and parameters
-    audio_directory = '../../data/guitarset_yourmt3_16k/audio_hex-pickup_debleeded/'
+    audio_directory = '../../noteData/guitarset_yourmt3_16k/audio_hex-pickup_debleeded/'
 
     # Initialize storage for beta values (6 strings)
     betas = {f"Saite_{i + 1}": [] for i in range(6)}

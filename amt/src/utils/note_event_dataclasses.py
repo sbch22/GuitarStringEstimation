@@ -27,7 +27,7 @@ class Note:
     offset: float  # offset time in seconds
     pitch: int  # MIDI note number (0-127)
     velocity: int  # (0-1) if ignore_velocity is True, otherwise (0-127)
-    contour: List[Tuple[float, float]]
+    contour: Optional[List[Tuple[float, float]]]
 
 
 # declare matchNote object

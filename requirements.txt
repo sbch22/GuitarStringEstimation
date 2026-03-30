@@ -122,3 +122,7 @@ wandb==0.18.7
 wrapt==1.17.0
 yarl==1.18.0
 zstandard==0.23.0
+
+sounddevice~=0.5.2
+seaborn~=0.13.2
+pyfar~=0.7.3

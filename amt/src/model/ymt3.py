@@ -689,7 +689,7 @@ class YourMT3(pl.LightningModule):
         #     track_info = [notes_dict[k] for k in notes_dict.keys() if k.endswith("_id")]
         #     self.sample_table.add_data(self.current_epoch, track_info, pred_events_text,
         #                                actual_events_text, pred_notes_text, actual_notes_text)
-        #     self.logger.log_table('Samples', self.sample_table.columns, self.sample_table.data)
+        #     self.logger.log_table('Samples', self.sample_table.columns, self.sample_table.noteData)
 
         decoding_time_sec = t.elapsed_time()
         self.log('val_loss', loss, prog_bar=True, batch_size=n_items, sync_dist=True)

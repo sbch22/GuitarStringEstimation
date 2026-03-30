@@ -7,7 +7,7 @@ from utils.note_event_dataclasses import Note
 from utils.note_event_dataclasses import NoteEvent
 from utils.midi import note_event2midi
 
-data_home = '../../data'
+data_home = '../../noteData'
 dataset_name = 'musicnet'
 base_dir = os.path.join(data_home, dataset_name + '_yourmt3_16k')
 mid_pattern = os.path.join(base_dir, '*_midi', '*.mid')

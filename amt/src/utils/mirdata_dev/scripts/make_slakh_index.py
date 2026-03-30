@@ -1,6 +1,6 @@
 """make_slakh16k_index.py
 USAGE:
-    python tasks/utils/mirdata_dev/scripts/make_slakh_index.py '../data' '2100-yourmt3-16k'
+    python tasks/utils/mirdata_dev/scripts/make_slakh_index.py '../noteData' '2100-yourmt3-16k'
 
 """
 import argparse
@@ -110,7 +110,7 @@ def main(args):
 if __name__ == "__main__":
     PARSER = argparse.ArgumentParser(description="Make dataset index file.")
     PARSER.add_argument(
-        "dataset_data_path", type=str, help="Path to dataset data folder.")
+        "dataset_data_path", type=str, help="Path to dataset noteData folder.")
     PARSER.add_argument(
         "version",
         type=str,

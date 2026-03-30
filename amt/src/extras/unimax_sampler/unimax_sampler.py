@@ -48,7 +48,7 @@ class DistributedSamplerWrapper(DistributedSampler):
     It is especially useful in conjunction with
     `torch.nn.parallel.DistributedDataParallel`. In such case, each
     process can pass a DistributedSamplerWrapper instance as a DataLoader
-    sampler, and load a subset of subsampled data of the original dataset
+    sampler, and load a subset of subsampled noteData of the original dataset
     that is exclusive to it.
 
     .. note::
@@ -104,7 +104,7 @@ class UnimaxSampler(Sampler):
         # Compute the sampling distribution p.
         self.p = self._unimax()
 
-    # Define how to iterate over the data. We'll use PyTorch's multinomial
+    # Define how to iterate over the noteData. We'll use PyTorch's multinomial
     # function to generate indices according to the distribution p.
     def __iter__(self) -> iter:
         return iter(torch.multinomial(self.p, len(self.p), replacement=True).tolist())
