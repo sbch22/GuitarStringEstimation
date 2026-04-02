@@ -7,27 +7,18 @@ sys.path.append(os.path.abspath(''))
 import multiprocessing as mp
 import os
 import pickle
-import numpy as np
 from configparser import ConfigParser
 import pyfar as pf
 import librosa as lib
 from scipy import stats
-from scipy.signal import medfilt
-from scipy.signal import find_peaks
-import matplotlib.gridspec as gridspec
-from matplotlib.colors import to_rgba
-
 import numpy as np
 from scipy.signal import find_peaks
-
 
 from utils.FeatureNote_dataclass import FilterReason
 from utils.FeatureNote_dataclass import Features
 from gse.src.utils.FeatureNote_dataclass import Partials
 from find_partials import note_audio_preprocess
 from scipy.optimize import minimize
-
-
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
@@ -37,7 +28,6 @@ from scipy.optimize import minimize_scalar
 
 
 """ FEATURES """
-
 def spectral_centroid_feature(audio_1d, W, H, sr):
     """audio_1d: raw 1-D note audio, shape (N_samples,)"""
     sc = lib.feature.spectral_centroid(y=audio_1d, sr=sr, n_fft=W, hop_length=H)
@@ -171,6 +161,8 @@ def relative_freq_deviations(partials, beta):
 
     return freq_deviation_measures
 
+
+""" HELPERS """
 def filter_betas(betas, beta_max):
     """Filter outliers from beta array using IQR method."""
     valid = ~np.isnan(betas)
@@ -229,8 +221,7 @@ def kde_mode(data):
         return np.nan
 
 
-
-
+""" INHAMRONICITY """
 def estimate_inharmonicity_coefficient_all_frets(partials, beta_max, iteration, plot, plot_frame=10):
     """
     Schätzt β pro Frame durch direkte Minimierung des Inharmonizitätsmodells.
@@ -296,13 +287,9 @@ def estimate_inharmonicity_coefficient_all_frets(partials, beta_max, iteration, 
         # --- Gewichtung: Amplitude × Informationsgehalt ---
         w_amp = (10 ** (a_db / 20.0)) **2
         w_info = k ** 2
-        w = w_amp * w_info #TODO: decide you must
+        w = w_amp * w_info
         w = w / (w.max() + 1e-12)
 
-        # --- Direkte Modellanpassung: β ∈ [0, β_max] ---
-        # def cost(beta):
-        #     f_model = k * f0 * np.sqrt(1.0 + beta * k ** 2)
-        #     return np.sum((w * (f - f_model)) ** 2)
 
         def cost_joint(params):
             f0_trial, beta_trial = params
@@ -476,25 +463,15 @@ def estimate_beta_direct(k, f_k, f0, weights, beta_max):
     return result.x if result.success else np.nan
 
 
+""" PARTIAL TRACKING """
 def quartertone_gate(f: float) -> float:
     """Max Hz deviation equivalent to quartertones at frequency f."""
     semitones = 0.5
     return f * (2.0 ** (semitones / 12.0) - 1.0)
 
-# ══════════════════════════════════════════════════════════════════════════
-#  Post-processing
-# ══════════════════════════════════════════════════════════════════════════
-def _remove_isolated_frames(f0_per_frame: np.ndarray) -> np.ndarray:
-    out = f0_per_frame.copy()
-    valid = ~np.isnan(out)
-    for t in np.where(valid)[0]:
-        if valid[max(0, t - 2): t + 3].sum() < 2:
-            out[t] = np.nan
-    return out
-
 def _compute_inst_freq(
         fft_frames: np.ndarray,
-        W: int,
+        N_fft: int,
         H: int,
         sr: int,
 ) -> np.ndarray:
@@ -505,7 +482,7 @@ def _compute_inst_freq(
     n_bins = fft_frames.shape[1]
     phase = np.angle(fft_frames)
     k_bins = np.arange(n_bins, dtype=float)
-    omega_k = 2.0 * np.pi * k_bins / W
+    omega_k = 2.0 * np.pi * k_bins / N_fft
 
     delta_phi = (
             omega_k * H
@@ -516,7 +493,6 @@ def _compute_inst_freq(
             - np.pi
     )
     return (delta_phi / (2.0 * np.pi * H)) * sr
-
 
 def _resolve_freq_via_inst(
         peaks_local: np.ndarray,
@@ -538,25 +514,18 @@ def _resolve_freq_via_inst(
     return resolved
 
 
-
-
-
-# ══════════════════════════════════════════════════════════════════════════
-#  Stage 1 – per-frame f0 refinement
-# ══════════════════════════════════════════════════════════════════════════
-
 def _refine_f0_per_frame(
         fft_norm: np.ndarray,
         inst_freq: np.ndarray,
         freq_axis: np.ndarray,
         f0_guess: float,
-        W: int,
+        N_fft: int,
         sr: int,
 ) -> np.ndarray:
     """Locate the f0 peak in a tight window per frame; reject large jumps."""
     n_frames = fft_norm.shape[0]
-    bin_nyquist = W // 2
-    freq_res = sr / W
+    bin_nyquist = N_fft // 2
+    freq_res = sr / N_fft
     f0_search_hz = quartertone_gate(f0_guess)
     max_f0_jump = quartertone_gate(f0_guess)
 
@@ -566,7 +535,7 @@ def _refine_f0_per_frame(
     f0_per_frame = np.full(n_frames, np.nan, dtype=float)
 
     for t in range(1, n_frames):
-        region = fft_norm[t, b_lo: b_hi + 1] #TODO: Bin low-1
+        region = fft_norm[t, b_lo: b_hi + 1]
         if region.size < 3:
             # Zu wenig Bins für find_peaks → nimm das Maximum direkt
             best_local = np.argmax(region)
@@ -577,7 +546,7 @@ def _refine_f0_per_frame(
                 continue
 
         best_local = peaks_local[np.argmax(region[peaks_local])]
-        best_bin = b_lo + best_local #TODO: Bin low-1
+        best_bin = b_lo + best_local
         if_est = inst_freq[t - 1, best_bin]
         candidate_f0 = (
             if_est
@@ -597,8 +566,8 @@ def _refine_f0_per_frame(
 
     return f0_per_frame
 
-def _partial_search_bounds(k, f0, beta, beta_max, W, sr, iteration):
-    freq_res = sr / W
+def _partial_search_bounds(k, f0, beta, beta_max, N_fft, sr, iteration):
+    freq_res = sr / N_fft
     f_harm = k * f0
 
     # iteration 0: use beta_max (explore)
@@ -615,10 +584,10 @@ def _partial_search_bounds(k, f0, beta, beta_max, W, sr, iteration):
     f_hi = min(f_max, f_harm + f0 / 2.0)
 
     b_lo = max(1, int(np.floor(f_lo / freq_res)))
-    b_hi = min(W // 2, int(np.ceil(f_hi / freq_res)))
+    b_hi = min(N_fft // 2, int(np.ceil(f_hi / freq_res)))
     return b_lo, b_hi, f_lo, f_hi
 
-# ── Weights for the cost function ─────────────────────────────────────────
+# ── Initial Weights for the cost function ─────────────────────────────────────────
 W_AMP = 2.0
 W_JUMP = 5.0
 W_HARMONIC = 3.0
@@ -674,14 +643,7 @@ def _score_candidates(
     w_harmonic_eff = W_HARMONIC * (1.0 + iteration * harmonic_growth)
     total_cost = W_AMP * amp_cost + W_JUMP * jump_cost + w_harmonic_eff * harmonic_cost
 
-    # total_cost = W_AMP * amp_cost + W_JUMP * jump_cost + W_HARMONIC * harmonic_cost
-
     return amp_cost, jump_cost, harmonic_cost, total_cost
-
-
-# ══════════════════════════════════════════════════════════════════════════
-#  Stage 2 – full partial tracking
-# ══════════════════════════════════════════════════════════════════════════
 
 def _track_partials(
         fft_norm: np.ndarray,
@@ -691,12 +653,10 @@ def _track_partials(
         beta: float,
         beta_max: float,
         sr: int,
-        W: int,
+        N_fft: int,
         n_partials: int,
         harmonic_orders: np.ndarray,
         iteration: int,
-        debug_frames: set[int] | None = None,
-        debug_partials: set[int] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, list]:
     """
     Track partials using the asymmetric physical search window.
@@ -725,7 +685,7 @@ def _track_partials(
 
             # ── Asymmetric physical bounds ─────────────────────────────
             b_lo, b_hi, f_lo, f_hi = _partial_search_bounds(
-                k, f0_t, beta, beta_max, W, sr, iteration
+                k, f0_t, beta, beta_max, N_fft, sr, iteration
             )
 
             amp_region = fft_norm[t, b_lo: b_hi + 1]
@@ -780,7 +740,7 @@ def _track_partials(
             if residual > max_acceptable:
                 continue  # skip — leave NaN
 
-            # Hard gate
+            # hard gate for tonal confusion
             max_jump_hz = quartertone_gate(f_k)
             prev_freq = partial_freqs[t - 1, p_idx]
             if not np.isnan(prev_freq) and abs(detected_freq - prev_freq) > max_jump_hz:
@@ -793,24 +753,17 @@ def _track_partials(
     return partial_freqs, partial_amps, partial_bins, search_windows
 
 
-
-
 def find_partials(
         fft_frames: np.ndarray,
         f0_guess: float,
         beta: float,
         sr: int,
-        W: int,
+        N_fft: int,
         H: int,
         n_partials: int,
         beta_max: float,  # ← upper physical bound
         iteration: int,
         amp_threshold: float = 0.005, # 0.005
-        partial_amp_threshold_dB: float = 0.0,
-        note_name: str = "",
-        plot: bool = True,
-        debug_frames: set[int] | None = None,
-        debug_partials: set[int] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, list]:
     """
     Track inharmonic partials across STFT frames.
@@ -832,31 +785,28 @@ def find_partials(
 
     harmonic_orders = np.arange(1, n_partials + 1)
     fft_mag = np.abs(fft_frames)
-    freq_axis = np.arange(n_bins, dtype=float) * sr / W
-    inst_freq = _compute_inst_freq(fft_frames, W, H, sr)
+    freq_axis = np.arange(n_bins, dtype=float) * sr / N_fft
+    inst_freq = _compute_inst_freq(fft_frames, N_fft, H, sr)
 
     fft_norm = fft_mag / (fft_mag.max() + 1e-12)
     fft_norm[fft_norm < amp_threshold] = 0.0
 
-    f0_per_frame = _refine_f0_per_frame(fft_norm, inst_freq, freq_axis, f0_guess, W, sr)
-    # f0_per_frame = _remove_isolated_frames(f0_per_frame) # TODO: DECIDE YOU MUST
+    f0_per_frame = _refine_f0_per_frame(fft_norm, inst_freq, freq_axis, f0_guess, N_fft, sr)
 
     partial_freqs, partial_amps, partial_bins, search_windows = _track_partials(
         fft_norm, inst_freq, freq_axis,
-        f0_per_frame, beta, beta_max, sr, W,
+        f0_per_frame, beta, beta_max, sr, N_fft,
         n_partials, harmonic_orders,
-        debug_frames=debug_frames,
-        debug_partials=debug_partials,
         iteration=iteration,
     )
 
     return partial_freqs, partial_amps, partial_bins, search_windows
 
 def inharmonic_partial_tracking(
-    fft_frames, f0, beta, n_iter, BETA_CONVERGENCE_MIN,
-    sr, W, H, beta_max, threshold, plot, note_name=None,
-    beta_bump_factor: float = 10.0,    # ← Faktor zum Hochsetzen bei negativem Beta
-    max_bumps: int = 3,               # ← wie oft darf gebumpt werden
+    fft_frames, f0, beta, n_iter,
+    sr, N_fft, H, beta_max, threshold, plot, note_name=None,
+    beta_bump_factor: float = 10.0,    # beta bump factor
+    max_bumps: int = 3,
 ):
     last_partials = None
     betas = []
@@ -869,11 +819,8 @@ def inharmonic_partial_tracking(
             fft_frames=fft_frames,
             f0_guess=f0,
             beta=beta,
-            sr=sr, W=W, H=H,
+            sr=sr, N_fft=N_fft, H=H,
             n_partials=25,
-            partial_amp_threshold_dB=threshold,
-            note_name=note_name,
-            plot=plot,
             beta_max=beta_max,
             iteration=iteration,
         )
@@ -888,10 +835,10 @@ def inharmonic_partial_tracking(
 
         # ---- Beta schätzen ----
         betas, f0s = estimate_inharmonicity_coefficient_all_frets(current_partials, beta_max=beta_max, iteration=iteration, plot=plot)
-        filter_betas(betas, beta_max*10)
+        filter_betas(betas, beta_max)
 
         if np.all(np.isnan(betas)) or len(betas) == 0:  # true when every frame failed
-            # Keine Partialtöne gefunden → Beta hochsetzen und neu starten
+            # no partials found -> beta bump
             if n_bumps < max_bumps:
                 beta = min(beta * beta_bump_factor, beta_max)
                 n_bumps += 1
@@ -903,11 +850,10 @@ def inharmonic_partial_tracking(
         if np.isnan(beta_new):
             beta_new = np.nanmedian(betas)
 
-        # ---- f0 updaten ----
-        f0_new = np.nanmedian(f0s)
-        if np.isfinite(f0_new):
-            f0 = f0_new
-
+        # # ---- f0 updaten ----
+        # f0_new = np.nanmedian(f0s)
+        # if np.isfinite(f0_new):
+        #     f0 = f0_new
 
         if not np.isfinite(beta_new) or beta_new < 0:
             # Negatives/ungültiges Beta → Startwert hochsetzen, neu starten
@@ -918,7 +864,7 @@ def inharmonic_partial_tracking(
             else:
                 break
 
-        # Konvergenz prüfen
+        # Convergence?
         if abs(beta_new - beta) / (beta_new + 1e-12) < 0.01: #:
             beta = beta_new
             break
@@ -927,11 +873,11 @@ def inharmonic_partial_tracking(
 
     return last_partials, betas, beta, f0
 
-
 def process_note(
     note,
     note_signal,
     audio_type,
+    beta_min,
     beta_max,
     sr,
     W,
@@ -965,11 +911,13 @@ def process_note(
 
     # --- preprocessing ---
     harmonic_audio = note_audio
-    preprocessed_audio, window = note_audio_preprocess(harmonic_audio, W, H)
-
     if len(harmonic_audio) < W:
         note.invalidate(FilterReason.HARMONIC_AUDIO_TOO_SHORT, step="find_partials")
         return
+
+    # zero-padding to increase low-frequency candidate-picking
+    N_fft = 16*W
+    preprocessed_audio, window = note_audio_preprocess(harmonic_audio, W, H, N_fft)
 
     if preprocessed_audio.ndim < 2:
         note.invalidate(FilterReason.HARMONIC_AUDIO_TOO_SHORT, step="find_partials")
@@ -977,23 +925,14 @@ def process_note(
 
     fft_frames = np.fft.rfft(preprocessed_audio, axis=1)
 
-
-    """ DBG Toggle low strings"""
-    # if note.attributes.string_index < 2:
-    #     plot = True
-    # else:
-    #     plot = False
-
-
     # --- partial tracking ---
     partials, betas, beta, f0 = inharmonic_partial_tracking(
         fft_frames=fft_frames,
         f0=note.attributes.pitch,
-        beta=5e-6,
+        beta=beta_min, # initial lowest guess for all guitars from literature -> the closer the inital guess, the better.
         n_iter=50,
-        BETA_CONVERGENCE_MIN=1e-5,
         sr=sr,
-        W=W,
+        N_fft=N_fft,
         H=H,
         threshold=threshold,
         note_name=str(note.attributes.pitch),
@@ -1007,20 +946,18 @@ def process_note(
         note.invalidate(FilterReason.NO_PARTIALS_FOUND, step="find_partials")
         return
 
-    # --- beta postprocessing ---
-    fret = note.attributes.fret
-    betas0 = np.array(betas) * 2 ** (-fret / 6) if len(betas) > 0 else np.array([np.nan])
-    betas0 = filter_betas(betas0, beta_max)
-    betas0 = np.array(betas0)
+    # beta single number averaging
+    betas = filter_betas(betas, beta_max)
+    betas = np.array(betas)
 
-    beta0 = kde_mode(betas0)
-    if np.isnan(beta0):
-        beta0 = np.nanmedian(betas0)
+    beta = kde_mode(betas)
+    if np.isnan(beta):
+        beta = np.nanmedian(betas)
 
     # --- optional plotting ---
     if plot:
         n_frames, n_bins = fft_frames.shape
-        freq_axis = np.arange(n_bins) * sr / W
+        freq_axis = np.arange(n_bins) * sr / N_fft
 
         fft_mag = np.abs(fft_frames)
         fft_norm = fft_mag / (fft_mag.max() + 1e-12)
@@ -1042,25 +979,26 @@ def process_note(
             ax.plot(times_frames, partial_freqs[:, p], color="lime", alpha=0.8, linewidth=2)
 
         ax.set_ylim(80, min(2000, sr / 2))
-        ax.set_title(f"{note.attributes.pitch} Hz | β={beta0:.2e} | String: {note.attributes.string_index}")
+        ax.set_title(f"{note.attributes.pitch} Hz | β={beta:.2e} | String: {note.attributes.string_index}")
         plt.colorbar(pcm, ax=ax)
         plt.tight_layout()
         plt.show()
 
-    # --- features ---
+    # features
     note.features[audio_type].f0 = note.attributes.pitch
 
-    if np.any(np.isfinite(betas0)):
+
+    if np.any(np.isfinite(betas)):
         betas_measures = np.array([
-            np.nanmean(betas0),
-            np.nanmedian(betas0),
-            np.nanstd(betas0),
-            np.nanvar(betas0),
-            np.nanmin(betas0),
-            np.nanmax(betas0),
-            stats.skew(betas0, nan_policy="omit"),
-            stats.kurtosis(betas0, nan_policy="omit"),
-            kde_mode(betas0),
+            np.nanmean(betas),
+            np.nanmedian(betas),
+            np.nanstd(betas),
+            np.nanvar(betas),
+            np.nanmin(betas),
+            np.nanmax(betas),
+            stats.skew(betas, nan_policy="omit"),
+            stats.kurtosis(betas, nan_policy="omit"),
+            kde_mode(betas),
         ])
     else:
         betas_measures = np.full(9, np.nan)
@@ -1075,7 +1013,7 @@ def process_note(
 
     # --- assign ---
     feat = note.features[audio_type]
-    feat.beta = beta0
+    feat.beta = beta
     feat.betas_measures = betas_measures
     feat.spectral_centroid = sc_measures
     feat.rel_partial_amplitudes = amp_dev
@@ -1085,8 +1023,9 @@ def process_note(
 
     feat.fill_feature_vector()
 
+
 def process_single_file(args):
-    filepath, beta_max, plot, threshold, W, H, audio_types = args
+    filepath, beta_min, beta_max, plot, threshold, W, H, audio_types = args
 
     print(f"Calculating Features {filepath}")
 
@@ -1104,6 +1043,7 @@ def process_single_file(args):
                 note=note,
                 note_signal=note_signal,
                 audio_type=audio_type,
+                beta_min=beta_min,
                 beta_max=beta_max,
                 sr=sr,
                 W=W,
@@ -1122,7 +1062,8 @@ def main(config):
     # read config
     W = config.getint('params', 'W')
     H = config.getint('params', 'H')
-    beta_max = config.getfloat('params', 'beta_max')
+    beta0_min = config.getfloat('params', 'beta0_min')
+    beta0_max = config.getfloat('params', 'beta0_max')
     threshold = config.getint('params', 'threshold')
     plot = config.getboolean('params', 'plot')
     audio_types_raw = config.get('paths', 'audio_types')
@@ -1130,7 +1071,10 @@ def main(config):
 
     track_directory = config.get('paths', 'track_directory')
 
-    print(W, H, beta_max, threshold)
+    beta_min = beta0_min # a fret only scales beta upwards
+    beta_max = beta0_max * 2 ** (20/6) # 20th fret as large boundary
+
+    print(W, H,beta_min, beta_max, threshold)
     print(track_directory)
 
     # Collect all file paths
@@ -1142,13 +1086,14 @@ def main(config):
         # and "solo" in filename
     ]
 
-    args_list = [(fp, beta_max, plot, threshold, W,H, audio_types) for fp in filepaths]
+    args_list = [(fp, beta_min, beta_max, plot, threshold, W,H, audio_types) for fp in filepaths]
 
     # Create pool and process files
     num_processes = mp.cpu_count() - 1  # Leave one core free
     with mp.Pool(processes=num_processes) as pool:
         results = pool.map(process_single_file, args_list)
-    #
+
+    """ Disable Multiprocessing"""
     # results = []
     # for args in args_list:
     #     result = process_single_file(args)

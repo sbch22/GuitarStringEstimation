@@ -4,12 +4,14 @@ import numpy as np
 import math
 from enum import Enum
 
+from numpy.lib.nanfunctions import nanmedian
+
 
 @dataclass
 class Features:
-    beta: Optional[float] = None
+    beta: Optional[float] = None # per fret
     f0: Optional[float] = None
-    betas_measures: Optional[np.ndarray] = None
+    betas_measures: Optional[np.ndarray] = None # per fret
     valid_partials: Optional[np.ndarray] = None
     rel_partial_amplitudes: Optional[np.ndarray] = None
     amp_decay_coefficients: Optional[np.ndarray] = None
@@ -17,6 +19,13 @@ class Features:
     spectral_centroid: Optional[np.ndarray] = None
 
     feature_vector: Optional[np.ndarray] = None
+
+    def beta0(self, fret) -> float:
+        if self.beta is None or np.isnan(self.beta):
+            return np.nan
+        else:
+            beta0 = self.beta * 2 ** (-fret / 6)
+            return beta0
 
     def fill_feature_vector(self) -> None:
         segments = {

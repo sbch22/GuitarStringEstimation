@@ -101,7 +101,7 @@ def main(subset):
         config_train.read('configs/config_train_single_note_IDMT.ini')
 
     # --- Step 2: Calculate features ---
-    # calculate_features.main(config_train)
+    calculate_features.main(config_train)
 
     track_directory = config_train.get('paths', 'track_directory')
     audio_types_raw = config_train.get('paths', 'audio_types')
@@ -155,7 +155,6 @@ def main(subset):
     filter_analysis(all_notes)
 
 
-
     # ── NaN analysis before imputation ───────────────────────────────────────
     nan_rate = np.isnan(FX).mean(axis=0)  # per-feature NaN rate
     print(f"\nFeatures with >50% NaN: {(nan_rate > 0.5).sum()} / {FX.shape[1]}")
@@ -195,7 +194,7 @@ def main(subset):
     # joblib.dump(best_model, "svm_pipeline_CV5_GS_20p_old.joblib")
 
     SVM.fit(FX, labels)
-    joblib.dump(SVM, "SVM_full_pre-DAGA.joblib") #TODO: wenn das nicht gut ist -> train on Solo
+    joblib.dump(SVM, "SVM_full_post-DAGA_noGS.joblib") #TODO: wenn das nicht gut ist -> train on Solo
     # print(f"Best f1_macro:  {SVM.score:.3f}")
 
 

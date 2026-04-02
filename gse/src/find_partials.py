@@ -20,41 +20,37 @@ from configparser import ConfigParser
 from multiprocessing import Pool, cpu_count
 import pyfar as pf
 
-from collections import defaultdict
 from utils.FeatureNote_dataclass import FilterReason, Features
 
 
 
-def note_audio_preprocess(audio, W, H):
+def note_audio_preprocess(audio, W, H, N_fft):
     """
-    Prerocesses Audio:
-    - Pad Audio
+    Preprocesses Audio:
     - Buffering
     - Windowing
-    Args:
-        audio: note audio
-        W: W
-        H: H
-
-    Returns:
-        audio_preprocessed: preprocessed note audio`
-
+    - Zero-padding to N_fft (if N_fft > W)
     """
-    # extract harmonic part of note audi -> cut out other onsets & time window the rest
-    # harmonic_audio, intra_onsets = extract_harmonic_note_audio(audio, W, H, sr, plot)
 
-    # Pad the audio so last window is included
+    if N_fft is None:
+        N_fft = W  # no extra padding by default
+
     audio_buffered = np.pad(audio, (0, W), mode="constant")
+    audio_buffered = np.lib.stride_tricks.sliding_window_view(
+        audio_buffered, window_shape=W
+    )[::H]
 
-    # buffer signal
-    audio_buffered = np.lib.stride_tricks.sliding_window_view(audio_buffered, window_shape=W)[::H]
-
-    # Apply Hann-Window on each frame
     window = scipy.signal.windows.hann(W, sym=False)
-    audio_preprocessed = audio_buffered * window
+    audio_windowed = audio_buffered * window
 
-    return audio_preprocessed, window
+    # Zero-pad each frame to N_fft
+    if N_fft > W:
+        n_frames = audio_windowed.shape[0]
+        padded = np.zeros((n_frames, N_fft), dtype=audio_windowed.dtype)
+        padded[:, :W] = audio_windowed
+        audio_windowed = padded
 
+    return audio_windowed, window
 
 def instantaneous_frequency(frames, W, H, sr, window):
     # FFT

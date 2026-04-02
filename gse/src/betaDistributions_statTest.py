@@ -49,7 +49,6 @@ def plot_beta_distributions(betas: Dict[int, List[float]]) -> List[np.ndarray]:
         all_values.append(values)
 
     global_min = min(v.min() for v in all_values if v.size > 0)
-    global_max = max(v.max() for v in all_values if v.size > 0)
     global_max = 2e-4
     global_bins = np.linspace(global_min, global_max, 201)  # 200 bins, uniform width
     bin_width = global_bins[1] - global_bins[0]
@@ -114,7 +113,10 @@ def main(config):
     track_directory = config.get('paths', 'track_directory')
     audio_types_raw = config.get('paths', 'audio_types')
     audio_types = [a.strip() for a in audio_types_raw.split(',')]
-    beta_max = config.getfloat('params', 'beta_max')
+    beta0_min = config.getfloat('params', 'beta0_min')
+    beta0_max = config.getfloat('params', 'beta0_max')
+    beta_min = beta0_min  # a fret only scales beta upwards
+    beta_max = beta0_max * 2 ** (20 / 6)  # 20th fret as large boundary
 
     # --- Step 2: Calculate features ---
     calculate_features.main(config)
@@ -144,17 +146,16 @@ def main(config):
 
             all_notes.extend(track.valid_notes)
             for note in track.valid_notes:
-                if note.features[audio_type].beta is None:
-                    continue
                 if audio_type not in note.features:
+                    continue
+                if note.features[audio_type].beta is None:
                     continue
                 string_index = note.attributes.string_index
                 if note.origin == "single_note":
-                    string_index += -1
+                    string_index -= 1
 
-                betas_by_string[string_index].append(note.features[audio_type].beta)
-                all_betas.append(note.features[audio_type].beta)
-
+                betas_by_string[string_index].append(note.features[audio_type].beta0(note.attributes.fret))
+                all_betas.append(note.features[audio_type].beta0(note.attributes.fret))
 
     cleaned_betas_by_string = plot_beta_distributions(betas_by_string)
 
