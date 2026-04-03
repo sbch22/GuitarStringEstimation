@@ -165,6 +165,8 @@ def relative_freq_deviations(partials, beta):
 """ HELPERS """
 def filter_betas(betas, beta_max):
     """Filter outliers from beta array using IQR method."""
+    betas = np.asarray(betas, dtype=float).ravel()
+
     valid = ~np.isnan(betas)
     valid_betas = betas[valid]
 
@@ -449,19 +451,6 @@ def estimate_inharmonicity_coefficient_all_frets(partials, beta_max, iteration, 
 
     return betas, f0s
 
-def estimate_beta_direct(k, f_k, f0, weights, beta_max):
-    """
-    Minimiere gewichteten Fehler zwischen gemessenen Frequenzen
-    und dem Inharmonizitätsmodell, mit β ∈ [0, β_max].
-    """
-    def cost(beta):
-        f_model = k * f0 * np.sqrt(1.0 + beta * k**2)
-        residuals = (f_k - f_model) * weights
-        return np.sum(residuals**2)
-
-    result = minimize_scalar(cost, bounds=(0, beta_max), method='bounded')
-    return result.x if result.success else np.nan
-
 
 """ PARTIAL TRACKING """
 def quartertone_gate(f: float) -> float:
@@ -692,8 +681,6 @@ def _track_partials(
             if amp_region.size == 0:
                 continue
 
-            search_windows.append((t, f_k, f_lo, f_hi))
-
             n_bins_region = b_hi - b_lo + 1
 
             if n_bins_region <= 4:
@@ -809,7 +796,6 @@ def inharmonic_partial_tracking(
     max_bumps: int = 3,
 ):
     last_partials = None
-    betas = []
     n_bumps = 0
 
     for i in range(n_iter):
@@ -835,7 +821,6 @@ def inharmonic_partial_tracking(
 
         # ---- Beta schätzen ----
         betas, f0s = estimate_inharmonicity_coefficient_all_frets(current_partials, beta_max=beta_max, iteration=iteration, plot=plot)
-        filter_betas(betas, beta_max)
 
         if np.all(np.isnan(betas)) or len(betas) == 0:  # true when every frame failed
             # no partials found -> beta bump
@@ -850,10 +835,10 @@ def inharmonic_partial_tracking(
         if np.isnan(beta_new):
             beta_new = np.nanmedian(betas)
 
-        # # ---- f0 updaten ----
-        # f0_new = np.nanmedian(f0s)
-        # if np.isfinite(f0_new):
-        #     f0 = f0_new
+        # ---- f0 updaten ---- from model fit
+        f0_new = np.nanmedian(f0s)
+        if np.isfinite(f0_new):
+            f0 = f0_new
 
         if not np.isfinite(beta_new) or beta_new < 0:
             # Negatives/ungültiges Beta → Startwert hochsetzen, neu starten

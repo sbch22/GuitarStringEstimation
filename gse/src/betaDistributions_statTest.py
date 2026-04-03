@@ -115,11 +115,12 @@ def main(config):
     audio_types = [a.strip() for a in audio_types_raw.split(',')]
     beta0_min = config.getfloat('params', 'beta0_min')
     beta0_max = config.getfloat('params', 'beta0_max')
+
     beta_min = beta0_min  # a fret only scales beta upwards
     beta_max = beta0_max * 2 ** (20 / 6)  # 20th fret as large boundary
 
     # --- Step 2: Calculate features ---
-    calculate_features.main(config)
+    # calculate_features.main(config)
 
     # Collect all file paths
     filepaths = [
@@ -127,7 +128,7 @@ def main(config):
         for filename in os.listdir(track_directory)
         if filename.endswith(".pkl")
         if os.path.isfile(os.path.join(track_directory, filename))
-        # and "solo" in filename
+        and "solo" in filename
     ]
     # Initialize dictionary to collect betas by string index
     betas_by_string = {i: [] for i in range(6)}
@@ -190,7 +191,7 @@ def main(config):
 if __name__ == "__main__":
     # test on the following subsets:
     config = configparser.ConfigParser()
-    config.read('configs/config_train_dev_GuitarSet.ini')
+    config.read('configs/config_train_GuitarSet.ini')
 
     main(config)
     # main(subset_comp)
