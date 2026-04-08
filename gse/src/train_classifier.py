@@ -101,7 +101,7 @@ def main(subset):
         config_train.read('configs/config_train_single_note_IDMT.ini')
 
     # --- Step 2: Calculate features ---
-    calculate_features.main(config_train)
+    # calculate_features.main(config_train)
 
     track_directory = config_train.get('paths', 'track_directory')
     audio_types_raw = config_train.get('paths', 'audio_types')
@@ -155,23 +155,50 @@ def main(subset):
     filter_analysis(all_notes)
 
 
+
     # ── NaN analysis before imputation ───────────────────────────────────────
     nan_rate = np.isnan(FX).mean(axis=0)  # per-feature NaN rate
     print(f"\nFeatures with >50% NaN: {(nan_rate > 0.5).sum()} / {FX.shape[1]}")
     print(f"Features with any NaN:  {(nan_rate > 0).sum()} / {FX.shape[1]}")
 
     print("\nRunning SVM Fit.")
-
-
     # ── Pipeline ────────────────────────────────────────────────────────────────
     SVM = Pipeline([
         ('imputer', SimpleImputer(strategy='mean', add_indicator=True)), # add indicator saves if nan was encountered in indicator variable
         ('scaler', StandardScaler()),
+        # ('pca', PCA(n_components=0.95)),      # Feature-Reduktion
         ('svm', SVC(kernel='rbf', C=10, gamma=0.001, probability=True)),
     ])
 
+    # # ── Grid Search
+    # param_grid = {
+    #     'svm__C': [0.1, 1, 10, 100],
+    #     'svm__gamma': ['scale', 'auto', 0.001, 0.01]
+    # }
+
+    # # Und Daten auf 20% reduzieren um Laufzeit abzuschätzen
+    # FX_sub, _, labels_sub, _ = train_test_split(
+    #     FX, labels, train_size=0.3, stratify=labels, random_state=42
+    # )
+
+    # print("\nRunning GridSearchCV...")
+    # cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    # grid = GridSearchCV(SVM, param_grid, cv=cv, scoring='f1_macro', n_jobs=-1)
+    # grid.fit(FX_sub, labels_sub)
+
+    # print(f"Best params:       {grid.best_params_}")
+    # print(f"Best CV f1_macro:  {grid.best_score_:.3f}")
+    #
+    # best_model = grid.best_estimator_
+
+    # Output
+    # joblib.dump(best_model, "svm_pipeline_CV5_GS_20p_old.joblib")
+
     SVM.fit(FX, labels)
-    joblib.dump(SVM, "SVM_full_post-DAGA_noGS.joblib") #TODO: wenn das nicht gut ist -> train on Solo
+    joblib.dump(SVM, "SVM_full_pre-DAGA.joblib") #TODO: wenn das nicht gut ist -> train on Solo
+    # print(f"Best f1_macro:  {SVM.score:.3f}")
+
+
 
 if __name__ == "__main__":
     # subset_single_note_IDMT = 'single_note_IDMT'
