@@ -22,3 +22,20 @@ gse/logs/**
 
 *.npy
 *.joblib
+
+
+*.pt
+*.pth
+*.bin
+
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
