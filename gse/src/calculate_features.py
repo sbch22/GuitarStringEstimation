@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import sys
 sys.path.append(os.path.abspath(''))
@@ -5,99 +7,27 @@ sys.path.append(os.path.abspath(''))
 import multiprocessing as mp
 import os
 import pickle
-import numpy as np
-import matplotlib.pyplot as plt
 from configparser import ConfigParser
 import pyfar as pf
 import librosa as lib
 from scipy import stats
-from scipy.signal import medfilt
+import numpy as np
 from scipy.signal import find_peaks
-import matplotlib.gridspec as gridspec
-from matplotlib.colors import to_rgba
 
 from utils.FeatureNote_dataclass import FilterReason
 from utils.FeatureNote_dataclass import Features
 from gse.src.utils.FeatureNote_dataclass import Partials
 from find_partials import note_audio_preprocess
-
+from scipy.optimize import minimize
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from matplotlib.lines import Line2D
-
+from scipy.optimize import minimize_scalar
 
 
 
 """ FEATURES """
-def filter_betas(betas, beta_max):
-    """Filter outliers from beta array using IQR method."""
-    valid = ~np.isnan(betas)
-    valid_betas = betas[valid]
-
-    # Handle empty case
-    if len(valid_betas) == 0:
-        return []
-
-    # Handle single value case
-    if len(valid_betas) == 1:
-        return valid_betas.tolist()
-
-    # IQR filter
-    Q1 = np.quantile(valid_betas, 0.25)
-    Q3 = np.quantile(valid_betas, 0.75)
-    IQR = Q3 - Q1
-
-    # Handle zero IQR (all values identical)
-    if IQR == 0:
-        return valid_betas.tolist()
-
-    lower_bound = Q1 - 1.5 * IQR
-    upper_bound = Q3 + 1.5 * IQR
-
-    filtered_values = valid_betas[
-        (valid_betas >= lower_bound) & (valid_betas <= upper_bound)
-        ].tolist()
-
-    # filter to remove invalid betas before postprocessing
-    filtered_values = [beta for beta in filtered_values if 0.0 < beta < beta_max]
-
-    return filtered_values
-
-def _debug_search_window(
-    amp_region: np.ndarray,
-    freq_region: np.ndarray,
-    f_k: float,
-    t: int,
-    p_idx: int,
-    peaks_local: np.ndarray,
-    fft_norm_region: np.ndarray | None = None,
-) -> None:
-    """
-    Small diagnostic plot for one search window.
-    amp_region      : raw (un-zeroed) normalised magnitude slice
-    fft_norm_region : the zeroed slice actually used for peak-picking
-    """
-    fig, ax = plt.subplots(figsize=(6, 3))
-
-    ax.plot(freq_region, amp_region, color="steelblue", label="amp (raw norm)")
-
-    if fft_norm_region is not None:
-        ax.plot(freq_region, fft_norm_region,
-                color="orange", linestyle="--", label="amp (zeroed)")
-
-    if peaks_local.size > 0:
-        ax.plot(freq_region[peaks_local], amp_region[peaks_local],
-                "v", color="lime", ms=8, label="peaks found")
-
-    ax.axvline(f_k, color="red", lw=1.2, linestyle=":", label=f"f_k={f_k:.1f} Hz")
-    ax.set_title(f"frame {t}, partial {p_idx+1}  —  expected {f_k:.1f} Hz")
-    ax.set_xlabel("Frequency (Hz)")
-    ax.set_ylabel("Norm. magnitude")
-    ax.legend(fontsize=8)
-    plt.tight_layout()
-    plt.show()
-
 def spectral_centroid_feature(audio_1d, W, H, sr):
     """audio_1d: raw 1-D note audio, shape (N_samples,)"""
     sc = lib.feature.spectral_centroid(y=audio_1d, sr=sr, n_fft=W, hop_length=H)
@@ -232,6 +162,43 @@ def relative_freq_deviations(partials, beta):
     return freq_deviation_measures
 
 
+""" HELPERS """
+def filter_betas(betas, beta_max):
+    """Filter outliers from beta array using IQR method."""
+    betas = np.asarray(betas, dtype=float).ravel()
+
+    valid = ~np.isnan(betas)
+    valid_betas = betas[valid]
+
+    # Handle empty case
+    if len(valid_betas) == 0:
+        return []
+
+    # Handle single value case
+    if len(valid_betas) == 1:
+        return valid_betas.tolist()
+
+    # IQR filter
+    Q1 = np.quantile(valid_betas, 0.25)
+    Q3 = np.quantile(valid_betas, 0.75)
+    IQR = Q3 - Q1
+
+    # Handle zero IQR (all values identical)
+    if IQR == 0:
+        return valid_betas.tolist()
+
+    lower_bound = Q1 - 1.5 * IQR
+    upper_bound = Q3 + 1.5 * IQR
+
+    filtered_values = valid_betas[
+        (valid_betas >= lower_bound) & (valid_betas <= upper_bound)
+        ].tolist()
+
+    # filter to remove invalid betas before postprocessing
+    filtered_values = [beta for beta in filtered_values if 0.0 < beta < beta_max]
+
+    return filtered_values
+
 def kde_mode(data):
     data = np.asarray(data, dtype=float)
     data = data[np.isfinite(data)]
@@ -256,168 +223,319 @@ def kde_mode(data):
         return np.nan
 
 
+""" INHAMRONICITY """
+def estimate_inharmonicity_coefficient_all_frets(partials, beta_max, iteration, plot, plot_frame=10):
+    """
+    Schätzt β pro Frame durch direkte Minimierung des Inharmonizitätsmodells.
 
-def estimate_inharmonicity_coefficient_all_frets(partials, plot, min_partials=4):
-    freqs = partials.frequencies  # (T, K)
+    Fitting-Logik:
+    ─────────────
+    Das physikalische Modell für den k-ten Partialton einer steifen Saite ist:
+
+        f_k = k · f₀ · √(1 + β · k²)
+
+    Gesucht wird das β ∈ [0, β_max], das die gewichtete Summe der
+    quadratischen Residuen minimiert:
+
+        β* = argmin  Σ  [ w_i · (f_k_i − k_i · f₀ · √(1 + β · k_i²)) ]²
+             β∈[0,β_max]
+
+    Die Gewichte w kombinieren zwei Faktoren:
+      1. Amplitude (linear, ^1.5): Lautere Partialtöne haben zuverlässigere
+         Frequenzschätzungen im STFT.
+      2. k²: Höhere Partialtöne tragen mehr β-Information, da der
+         inharmonische Shift mit k² wächst. Bei k=2 verschiebt β=1e-4
+         nur ~0.07 Hz, bei k=10 schon ~8 Hz.
+
+    Im Gegensatz zum vorherigen Taylor-Polynomfit (c_k ≈ a·k³ + b·k + c,
+    β = 2a/(f₀+b)) hat dieser Ansatz zwei Vorteile:
+      - β ist strukturell auf [0, β_max] beschränkt (kann nie negativ werden)
+      - Nur 1 freier Parameter statt 3 → stabiler bei wenigen Partialtönen
+    """
+    freqs = partials.frequencies   # (T, K)
+    amps_db = partials.amplitudes  # (T, K) in dBFS
+
     T, K = freqs.shape
     betas = np.full(T, np.nan)
+    f0s = np.full(T, np.nan)  # ← neu
+
     k_full = np.arange(1, K + 1)
 
     for i in range(T):
         f_k = freqs[i]
+        a_k_db = amps_db[i]
 
-        valid = np.isfinite(f_k)
-        if np.sum(valid) < 2:
+        valid = np.isfinite(f_k) & np.isfinite(a_k_db)
+        if np.sum(valid) < 4:
             continue
 
         k = k_full[valid]
         f = f_k[valid]
+        a_db = a_k_db[valid]
 
-        # if f0 available -> otherwise estimate by common denominator
-        if valid[0] and k[0] == 1:
-            f0 = f[0]  # direkt bekannt
-
-        # Eq. (15): ck
-        c_k = f - k * f0
-
-        # Eq. (16): polynomial fit
-        X = np.vstack([k**3, k, np.ones_like(k)]).T
-
-        try:
-            a, b, c = np.linalg.lstsq(X, c_k, rcond=None)[0]
-
-            # Eq. (17): beta
-            beta = 2 * a / (f0 + b)
-
-
-            # sanity checks
-            if np.isfinite(beta) and beta > 0:
-                betas[i] = beta
-
-        except np.linalg.LinAlgError:
+        if k.max() < 6:
             continue
 
-    # IQR Filter on betas directly from fitting
-    betas = filter_betas(betas, 1e-3) # high beta max -> capture everything first
-    return betas
+        if valid[0] and k[0] == 1:
+            f0_init = f[0]
+        else:
+            f0_init = np.median(f / k)
+
+        # f0 darf sich nur wenig bewegen: ±1 Halbton
+        f0_lo = f0_init * 2 ** (-1.0 / 12.0)
+        f0_hi = f0_init * 2 ** (+1.0 / 12.0)
 
 
-def _hz_to_bin_range(
-    f_center: float,
-    half_width_hz: float,
-    W: int,
-    sr: int,
-    bin_nyquist: int,
-) -> tuple[int, int]:
+        # --- Gewichtung: Amplitude × Informationsgehalt ---
+        w_amp = (10 ** (a_db / 20.0)) **2
+        w_info = k ** 2
+        w = w_amp * w_info
+        w = w / (w.max() + 1e-12)
+
+
+        def cost_joint(params):
+            f0_trial, beta_trial = params
+            f_model = k * f0_trial * np.sqrt(1.0 + beta_trial * k ** 2)
+            return np.sum((w * (f - f_model)) ** 2)
+
+        result = minimize(cost_joint, x0=[f0_init, 1e-5],
+                          bounds=[(f0_lo, f0_hi), (0, beta_max)],
+                          method='L-BFGS-B')
+
+        if not result.success:
+            continue
+
+        # Right after the first result.x:
+        f0, beta = result.x
+
+        f_model = k * f0 * np.sqrt(1.0 + beta * k ** 2)
+        residuals = np.abs(f - f_model)
+
+        # A correctly identified partial can't be off by more than
+        # half the distance to its neighbor — otherwise it's the
+        # wrong peak entirely.
+        max_plausible_error = f0 / 4.0
+        inlier = residuals < max_plausible_error
+
+        if inlier.sum() >= 4 and inlier.sum() < len(k):
+            k2, f2, w2 = k[inlier], f[inlier], w[inlier]
+            w2 = w2 / (w2.max() + 1e-12)
+
+            def cost_clean(params):
+                f0_t, beta_t = params
+                f_m = k2 * f0_t * np.sqrt(1.0 + beta_t * k2 ** 2)
+                return np.sum((w2 * (f2 - f_m)) ** 2)
+
+            result2 = minimize(cost_clean, x0=[f0, beta],
+                               bounds=[(f0_lo, f0_hi), (0, beta_max)],
+                               method='L-BFGS-B')
+            if result2.success:
+                f0, beta = result2.x
+
+        if not (np.isfinite(beta) and beta > 0):
+            continue
+
+        betas[i] = beta
+        f0s[i] = f0
+
+        # ── Plot ──────────────────────────────────────────────────────
+        if plot and plot_frame is not None and i == plot_frame:
+            c_k = f - k * f0
+
+            # ── Mark outliers vs inliers ──
+            # 'inlier' mask is from the residual gating above;
+            # if no refit happened, all points are inliers
+            if 'inlier' not in dir():
+                inlier = np.ones(len(k), dtype=bool)
+
+            k_plot = np.linspace(1, K, 400)
+            f_model_curve = k_plot * f0 * np.sqrt(1.0 + beta * k_plot ** 2)
+            c_model_curve = f_model_curve - k_plot * f0
+
+            ACCENT  = "#1565c0"
+            DOT_NAN = "#c62828"
+            GRID    = "#d0d0d0"
+
+            fig, ax = plt.subplots(figsize=(9, 7))
+            fig.patch.set_facecolor("white")
+            ax.set_facecolor("white")
+
+            # Ungültige Partiale als Rug-Markierung
+            k_invalid = k_full[~valid]
+            if len(k_invalid):
+                ax.scatter(
+                    k_invalid, np.zeros(len(k_invalid)),
+                    marker="|", s=140, linewidths=1.8, color=DOT_NAN,
+                    alpha=0.85, zorder=3, clip_on=False,
+                    transform=ax.get_xaxis_transform(),
+                )
+
+            ax.axhline(0, color=GRID, linewidth=0.9, linestyle="--", zorder=1)
+
+            # Modellkurve: f_k - k·f₀ für geschätztes β
+            ax.plot(
+                k_plot, c_model_curve,
+                color=ACCENT, linewidth=2.0, zorder=4,
+                label=rf"Modell $k f_0 \sqrt{{1 + \beta k^2}} - k f_0$",
+            )
+
+            # Inlier points (color-coded by amplitude, as before)
+            sc = ax.scatter(
+                k[inlier], c_k[inlier], c=a_db[inlier], cmap="viridis",
+                s=60, edgecolors="black", linewidths=0.5, zorder=5,
+            )
+
+            # Outlier points — red X markers
+            if (~inlier).any():
+                ax.scatter(
+                    k[~inlier], c_k[~inlier],
+                    marker="x", s=80, linewidths=2, color="#c62828",
+                    zorder=6, label="Outlier (entfernt)",
+                )
+            cbar = plt.colorbar(sc, ax=ax)
+            cbar.set_label("Amplitude (dBFS)")
+
+            # Gewichte als Balkenbreite visualisieren
+            for ki, ci, wi in zip(k, c_k, w):
+                ax.plot(
+                    [ki, ki], [ci - wi * 2, ci + wi * 2],
+                    color=ACCENT, alpha=0.3, linewidth=3, zorder=2,
+                )
+
+            # β-Annotation
+            ax.text(
+                0.97, 0.95, rf"$\hat{{\beta}} = {beta:.3e}$",
+                transform=ax.transAxes, ha="right", va="top",
+                fontsize=10, color="black",
+                bbox=dict(
+                    boxstyle="round,pad=0.4", facecolor="white",
+                    edgecolor=GRID, alpha=0.9,
+                ),
+            )
+
+            ax.set_xlabel("Partialtonordnung $k$", fontsize=12)
+            ax.set_ylabel(r"Frequenzabweichung $c_k = f_k - k f_0$ (Hz)", fontsize=12)
+            ax.set_title(
+                f"Inharmonizitätsfit — Frame {i}, $f_0$ = {f0:.2f} Hz | i:{iteration}",
+                fontsize=13, pad=10, fontweight="semibold",
+            )
+            ax.set_xlim(0.5, K + 0.5)
+            ax.xaxis.set_major_locator(ticker.MultipleLocator(2))
+            ax.xaxis.set_minor_locator(ticker.MultipleLocator(1))
+            for spine in ax.spines.values():
+                spine.set_edgecolor("#aaaaaa")
+            ax.tick_params(colors="black", which="both")
+            ax.grid(True, color=GRID, linewidth=0.5, linestyle="--", alpha=0.8)
+
+            legend_handles = [
+                Line2D([0], [0], marker="o", color="none",
+                       markerfacecolor="white", markeredgecolor="black",
+                       markeredgewidth=0.5, markersize=7,
+                       label=r"$c_k$ (gemessen)"),
+                Line2D([0], [0], color=ACCENT, linewidth=2,
+                       label=rf"Modellfit $\beta = {beta:.2e}$"),
+                Line2D([0], [0], color=ACCENT, linewidth=3, alpha=0.3,
+                       label="Gewicht $w_i$ (Amplitude × $k^2$)"),
+            ]
+            if len(k_invalid):
+                legend_handles.append(
+                    Line2D([0], [0], marker="|", color=DOT_NAN,
+                           markersize=9, markeredgewidth=1.8,
+                           linestyle="none", label="Fehlender Partial"),
+                )
+            ax.legend(handles=legend_handles, facecolor="white",
+                      edgecolor=GRID, fontsize=9.5, loc="upper left")
+
+            fig.tight_layout()
+            plt.show()
+
+    return betas, f0s
+
+
+""" PARTIAL TRACKING """
+def quartertone_gate(f: float) -> float:
+    """Max Hz deviation equivalent to quartertones at frequency f."""
+    semitones = 0.5
+    return f * (2.0 ** (semitones / 12.0) - 1.0)
+
+def _compute_inst_freq(
+        fft_frames: np.ndarray,
+        N_fft: int,
+        H: int,
+        sr: int,
+) -> np.ndarray:
     """
-    Translate (f_center ± half_width_hz) to a safe integer bin range.
-    Guarantees at least 1 bin of search room and clamps to [0, bin_nyquist].
+    Instantaneous frequency via successive-frame phase difference.
+    Returns shape (n_frames-1, n_bins) in Hz.
     """
-    hz_per_bin = sr / W
-    b_lo = max(int(np.floor((f_center - half_width_hz) / hz_per_bin)), 0)
-    b_hi = min(int(np.ceil ((f_center + half_width_hz) / hz_per_bin)), bin_nyquist)
-
-    if b_hi <= b_lo:
-        b_lo = max(b_lo - 1, 0)
-        b_hi = min(b_lo + 2, bin_nyquist)
-
-    return b_lo, b_hi
-
-
-
-
-# ── Constants (top of file or passed as params) ───────────────────────────
-MAX_F0_JUMP_SEMITONES      = 0.5
-MAX_PARTIAL_JUMP_SEMITONES = 1.0
-SEARCH_SEMITONES           = 1.0   # half-width of peak search window around f̂ₖ
-
-def semitone_gate(f0: float, semitones: float) -> float:
-    """Max Hz deviation equivalent to `semitones` semitones at frequency f0."""
-    return f0 * (2.0 ** (semitones / 12.0) - 1.0)
-
-
-# ── Constants ─────────────────────────────────────────────────────────────
-MAX_F0_JUMP_SEMITONES      = 0.5
-MAX_PARTIAL_JUMP_SEMITONES = 1.0
-SEARCH_SEMITONES_F0        = 0.5   # kept tight: f0 error multiplies into every partial
-SEARCH_SEMITONES_PARTIAL   = 1.0   # scales in Hz with k; hard-capped at f0/2
-
-def find_partials(
-    fft_frames: np.ndarray,
-    f0_guess: float,
-    beta: float,
-    sr: int,
-    W: int,
-    H: int,
-    n_partials: int,
-    amp_threshold: float = 0.005,
-    partial_amp_threshold_dB: float = 0.0,
-    note_name: str = "",
-    plot: bool = True,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, list]:
-
-    # ── Init ──────────────────────────────────
-    n_frames, n_bins = fft_frames.shape
-    bin_nyquist = W // 2
-
-    search_windows: list = []
-
-    fft_mag   = np.abs(fft_frames)
-    freq_axis = np.arange(n_bins, dtype=float) * sr / W
-    harmonic_orders = np.arange(1, n_partials + 1)
-
-    partial_freqs = np.full((n_frames, n_partials), np.nan, dtype=float)
-    partial_amps  = np.full((n_frames, n_partials), np.nan, dtype=float)
-    partial_bins  = np.full((n_frames, n_partials), -1,    dtype=int)
-
-    frame_max = fft_mag.max()
-    if frame_max == 0.0:
-        return partial_freqs, partial_amps, partial_bins, search_windows
-
-
-    # ── Pre-compute instantaneous frequency ───────────────────────────────
-    phase   = np.angle(fft_frames)
-    k_bins  = np.arange(n_bins, dtype=float)
-    omega_k = 2.0 * np.pi * k_bins / W
+    n_bins = fft_frames.shape[1]
+    phase = np.angle(fft_frames)
+    k_bins = np.arange(n_bins, dtype=float)
+    omega_k = 2.0 * np.pi * k_bins / N_fft
 
     delta_phi = (
-        omega_k * H
-        + np.mod(
-            phase[1:, :] - phase[:-1, :] - omega_k * H + np.pi,
-            2.0 * np.pi,
-        )
-        - np.pi
+            omega_k * H
+            + np.mod(
+        phase[1:] - phase[:-1] - omega_k * H + np.pi,
+        2.0 * np.pi,
     )
-    inst_freq = (delta_phi / (2.0 * np.pi * H)) * sr   # (n_frames-1, n_bins)
+            - np.pi
+    )
+    return (delta_phi / (2.0 * np.pi * H)) * sr
 
-    # ── Normalised magnitude for peak-picking (Frame) ─────────────────────────────
-    fft_norm = fft_mag / (fft_mag.max(axis=1, keepdims=True) + 1e-12)
-    fft_norm[fft_norm < amp_threshold] = 0.0
+def _resolve_freq_via_inst(
+        peaks_local: np.ndarray,
+        b_lo: int,
+        freq_axis: np.ndarray,
+        inst_freq_row: np.ndarray,
+        search_hz: float,
+) -> np.ndarray:
+    """Replace bin-centre Hz with inst-freq estimate where it stays in-window."""
+    resolved = np.empty(len(peaks_local), dtype=float)
+    for i, pl in enumerate(peaks_local):
+        bb = b_lo + pl
+        if_est = inst_freq_row[bb]
+        resolved[i] = (
+            if_est
+            if abs(if_est - freq_axis[bb]) < search_hz
+            else freq_axis[bb]
+        )
+    return resolved
 
-    # # ── Normalised magnitude for peak-picking (NOte) ─────────────────────────────
-    # fft_norm = fft_mag / (frame_max + 1e-12)
-    # fft_norm[fft_norm < amp_threshold] = 0.0
 
+def _refine_f0_per_frame(
+        fft_norm: np.ndarray,
+        inst_freq: np.ndarray,
+        freq_axis: np.ndarray,
+        f0_guess: float,
+        N_fft: int,
+        sr: int,
+) -> np.ndarray:
+    """Locate the f0 peak in a tight window per frame; reject large jumps."""
+    n_frames = fft_norm.shape[0]
+    bin_nyquist = N_fft // 2
+    freq_res = sr / N_fft
+    f0_search_hz = quartertone_gate(f0_guess)
+    max_f0_jump = quartertone_gate(f0_guess)
 
-    # ── Stage 1: refine f0 per frame ──────────────────────────────────────
-    # Tight semitone window; f0 errors would otherwise scale into every partial.
-    f0_search_hz = semitone_gate(f0_guess, SEARCH_SEMITONES_F0)
-    b_lo_f0, b_hi_f0 = _hz_to_bin_range(f0_guess, f0_search_hz, W, sr, bin_nyquist)
+    b_lo = max(1, int(np.floor((f0_guess - f0_search_hz) / freq_res)))
+    b_hi = min(bin_nyquist, int(np.ceil((f0_guess + f0_search_hz) / freq_res)))
 
     f0_per_frame = np.full(n_frames, np.nan, dtype=float)
 
     for t in range(1, n_frames):
-        region = fft_norm[t, b_lo_f0-1: b_hi_f0 + 1] # TODO: extend search range down asymmetrically
-        if region.size == 0:
-            continue
-
-        peaks_local, _ = find_peaks(region, height=0.0)
-        if peaks_local.size == 0:
-            continue
+        region = fft_norm[t, b_lo: b_hi + 1]
+        if region.size < 3:
+            # Zu wenig Bins für find_peaks → nimm das Maximum direkt
+            best_local = np.argmax(region)
+            peaks_local = np.array([best_local])
+        else:
+            peaks_local, _ = find_peaks(region)
+            if peaks_local.size == 0:
+                continue
 
         best_local = peaks_local[np.argmax(region[peaks_local])]
-        best_bin   = b_lo_f0-1 + best_local # TODO: hier auch -1
-
+        best_bin = b_lo + best_local
         if_est = inst_freq[t - 1, best_bin]
         candidate_f0 = (
             if_est
@@ -425,19 +543,122 @@ def find_partials(
             else freq_axis[best_bin]
         )
 
-        max_f0_jump = semitone_gate(f0_guess, MAX_F0_JUMP_SEMITONES)
-        if not np.isnan(f0_per_frame[t - 1]):
-            if abs(candidate_f0 - f0_per_frame[t - 1]) > max_f0_jump:
-                f0_per_frame[t] = np.nan
+        last_valid = next(
+            (f0_per_frame[j] for j in range(t - 1, max(t - 5, -1), -1)
+             if not np.isnan(f0_per_frame[j])),
+            np.nan
+        )
+        if not np.isnan(last_valid):
+            if abs(candidate_f0 - last_valid) > max_f0_jump:
                 continue
-
         f0_per_frame[t] = candidate_f0
 
+    return f0_per_frame
 
-    # ── Stage 2: find each partial using the per-frame f0 ─────────────────
-    W_AMP      = 2.0
-    W_JUMP     = 8.0
-    W_HARMONIC = 1.0
+def _partial_search_bounds(k, f0, beta, beta_max, N_fft, sr, iteration):
+    freq_res = sr / N_fft
+    f_harm = k * f0
+
+    # iteration 0: use beta_max (explore)
+    # later: use current beta + shrinking margin
+    if iteration == 0:
+        beta_upper = beta_max
+    else:
+        # allow 3× current beta as headroom, but never exceed beta_max
+        beta_upper = min(beta * 3.0, beta_max)
+
+    f_max = k * f0 * np.sqrt(1.0 + beta_upper * k**2)
+    epsilon = max(freq_res, f0 * 0.02)
+    f_lo = f_harm - epsilon
+    f_hi = min(f_max, f_harm + f0 / 2.0)
+
+    b_lo = max(1, int(np.floor(f_lo / freq_res)))
+    b_hi = min(N_fft // 2, int(np.ceil(f_hi / freq_res)))
+    return b_lo, b_hi, f_lo, f_hi
+
+# ── Initial Weights for the cost function ─────────────────────────────────────────
+W_AMP = 2.0
+W_JUMP = 5.0
+W_HARMONIC = 3.0
+
+def _score_candidates(
+        cand_freqs: np.ndarray,
+        cand_amps: np.ndarray,
+        f_k: float,
+        f_harm: float,
+        partial_search_hz: float,
+        prev_freq: float,
+        iteration: int,
+        subharm_penalty: float = 5.0,   # ← tune this; 5× works well empirically
+        harmonic_growth: float = 5,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Three-term cost function with a corrected directional harmonic penalty.
+
+    Key fix: the sub-harmonic penalty is applied to the *unclipped* deviation
+    and measured from f_harm (the β=0 anchor), not from f_k.  The old code
+    clipped raw_harmonic_cost to [0,1] before multiplying — meaning candidates
+    already at max cost were unaffected and the ×2 did nothing.
+
+    Penalty tiers:
+      cand < f_harm   →  deviation from f_harm × subharm_penalty  (physically impossible)
+      f_harm ≤ cand   →  deviation from f_k   × 1.0               (normal inharmonic window)
+    """
+    norm_amps = cand_amps / (cand_amps.max() + 1e-12)
+    amp_cost = 1.0 - norm_amps
+
+    max_jump_hz = quartertone_gate(f_k)
+    jump_cost = (
+        np.clip(np.abs(cand_freqs - prev_freq) / max_jump_hz, 0.0, 1.0)
+        if not np.isnan(prev_freq)
+        else np.zeros(len(cand_freqs))
+    )
+
+    below_harm = cand_freqs < f_harm
+
+    # Sub-harmonic branch: measure from f_harm and apply heavy penalty
+    sub_dev = np.abs(cand_freqs - f_harm) / (partial_search_hz + 1e-12)
+    sub_cost = sub_dev * subharm_penalty  # intentionally unclipped before merge
+
+    # Normal branch: deviation from current β-shifted prediction
+    norm_dev = np.abs(cand_freqs - f_k) / (partial_search_hz + 1e-12)
+
+    # Merge and clip once at the end
+    harmonic_cost = np.clip(
+        np.where(below_harm, sub_cost, norm_dev),
+        0.0, 1.0,
+    )
+
+    w_harmonic_eff = W_HARMONIC * (1.0 + iteration * harmonic_growth)
+    total_cost = W_AMP * amp_cost + W_JUMP * jump_cost + w_harmonic_eff * harmonic_cost
+
+    return amp_cost, jump_cost, harmonic_cost, total_cost
+
+def _track_partials(
+        fft_norm: np.ndarray,
+        inst_freq: np.ndarray,
+        freq_axis: np.ndarray,
+        f0_per_frame: np.ndarray,
+        beta: float,
+        beta_max: float,
+        sr: int,
+        N_fft: int,
+        n_partials: int,
+        harmonic_orders: np.ndarray,
+        iteration: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, list]:
+    """
+    Track partials using the asymmetric physical search window.
+
+    beta_max is now a required parameter — it drives the upper search bound
+    and tightens naturally as beta converges toward beta_max from below.
+    """
+    n_frames = fft_norm.shape[0]
+
+    search_windows: list = []
+    partial_freqs = np.full((n_frames, n_partials), np.nan, dtype=float)
+    partial_amps = np.full((n_frames, n_partials), np.nan, dtype=float)
+    partial_bins = np.full((n_frames, n_partials), -1, dtype=int)
 
     for t in range(1, n_frames):
         f0_t = f0_per_frame[t]
@@ -445,147 +666,356 @@ def find_partials(
             continue
 
         for p_idx, k in enumerate(harmonic_orders):
-            f_k = k * f0_t * np.sqrt(1.0 + beta * float(k) ** 2)
+            k_f = float(k)
+            f_harm = k_f * f0_t  # β = 0
+            f_k = k_f * f0_t * np.sqrt(1.0 + beta * k_f ** 2)  # current β
             if f_k >= sr / 2.0 or np.isnan(f_k):
                 break
 
-            # Semitone window that grows in Hz with k, but never wider than f0/2
-            # so adjacent partials cannot bleed into each other's search region.
-            partial_search_hz = min(
-                semitone_gate(f_k, SEARCH_SEMITONES_PARTIAL),
-                f0_t / 2.0,
+            # ── Asymmetric physical bounds ─────────────────────────────
+            b_lo, b_hi, f_lo, f_hi = _partial_search_bounds(
+                k, f0_t, beta, beta_max, N_fft, sr, iteration
             )
 
-            b_lo, b_hi = _hz_to_bin_range(f_k, partial_search_hz, W, sr, bin_nyquist)
-            amp_region  = fft_norm[t, b_lo: b_hi + 1]
-            freq_region = freq_axis[b_lo: b_hi + 1]
-
+            amp_region = fft_norm[t, b_lo: b_hi + 1]
             if amp_region.size == 0:
                 continue
 
-            search_windows.append((t, f_k, freq_axis[b_lo], freq_axis[b_hi]))
+            n_bins_region = b_hi - b_lo + 1
 
-            peaks_local, _ = find_peaks(amp_region)
-            if peaks_local.size == 0:
-                continue
+            if n_bins_region <= 4:
+                best_local = np.argmax(amp_region)
+                if amp_region[best_local] == 0.0:
+                    continue
+                peaks_local = np.array([best_local])
+            else:
+                peaks_local, _ = find_peaks(amp_region)
+                if peaks_local.size == 0:
+                    continue
+                # Also filter peaks that sit on the zeroed floor
+                peaks_local = peaks_local[amp_region[peaks_local] > 0.0]
+                if peaks_local.size == 0:
+                    continue
 
-            # Resolve each candidate via instantaneous frequency
-            cand_freqs = np.empty(len(peaks_local), dtype=float)
-            for i, pl in enumerate(peaks_local):
-                bb     = b_lo + pl
-                if_est = inst_freq[t - 1, bb]
-                cand_freqs[i] = (
-                    if_est
-                    if abs(if_est - freq_axis[bb]) < partial_search_hz
-                    else float(freq_region[pl])
-                )
+            search_windows.append((t, f_k, f_lo, f_hi))
+
+            # Use the window half-width for inst-freq gating
+            partial_search_hz = (f_hi - f_lo) / 2.0
+            cand_freqs = _resolve_freq_via_inst(
+                peaks_local, b_lo, freq_axis, inst_freq[t - 1], partial_search_hz,
+            )
             cand_amps = amp_region[peaks_local]
 
-            # ── Cost function ─────────────────────────────────────────────
-            norm_amps = cand_amps / (cand_amps.max() + 1e-12)
-            amp_cost  = 1.0 - norm_amps
-
-            max_jump_hz = semitone_gate(f_k, MAX_PARTIAL_JUMP_SEMITONES)
-            prev_freq   = partial_freqs[t - 1, p_idx]
-            jump_cost   = (
-                np.clip(np.abs(cand_freqs - prev_freq) / max_jump_hz, 0.0, 1.0)
-                if not np.isnan(prev_freq)
-                else np.zeros(len(peaks_local))
+            amp_cost, jump_cost, harmonic_cost, total_cost = _score_candidates(
+                cand_freqs,
+                cand_amps,
+                f_k,
+                f_harm,  # ← directional penalty pivot
+                partial_search_hz,
+                prev_freq=partial_freqs[t - 1, p_idx],
+                iteration=iteration,
             )
 
-            # Normalise harmonic deviation against the same window used for search
-            harmonic_cost = np.clip(
-                np.abs(cand_freqs - f_k) / (partial_search_hz + 1e-12), 0.0, 1.0
-            )
-
-            total_cost = W_AMP * amp_cost + W_JUMP * jump_cost + W_HARMONIC * harmonic_cost
-
-            best_idx      = int(np.argmin(total_cost))
-            best_bin      = b_lo + peaks_local[best_idx]
+            best_idx = int(np.argmin(total_cost))
+            # after best_idx selection, before writing to partial_freqs
             detected_freq = cand_freqs[best_idx]
+            f_model_k = k_f * f0_t * np.sqrt(1.0 + beta * k_f ** 2)
+            residual = abs(detected_freq - f_model_k)
 
-            # Hard gate: amplitude alone must not override a physically bad jump
+            # half the distance to the neighboring harmonic
+            max_acceptable = f0_t * 0.5
+            if residual > max_acceptable:
+                continue  # skip — leave NaN
+
+            # hard gate for tonal confusion
+            max_jump_hz = quartertone_gate(f_k)
+            prev_freq = partial_freqs[t - 1, p_idx]
             if not np.isnan(prev_freq) and abs(detected_freq - prev_freq) > max_jump_hz:
                 continue
 
             partial_freqs[t, p_idx] = detected_freq
-            partial_amps[t, p_idx]  = 20.0 * np.log10(float(cand_amps[best_idx]) + 1e-12)
-            partial_bins[t, p_idx]  = best_bin
-
-    # removes overlapping notes
-    valid_mask = ~np.isnan(f0_per_frame)
-    for t in np.where(valid_mask)[0]:
-        neighbors = valid_mask[max(0, t - 2): t + 3]
-        if neighbors.sum() < 2:
-            f0_per_frame[t] = np.nan
-
-    # ── Plot ─────────────────────────────────────────────────────────────────
-    if False:
-        times_frames = np.arange(n_frames) * (H / sr)
-        fft_mag_db   = 20.0 * np.log10(fft_norm + 1e-12)
-
-        fig, ax = plt.subplots(figsize=(14, 14))
-        pcm = ax.pcolormesh(
-            times_frames, freq_axis, fft_mag_db.T,
-            shading="auto", cmap="magma",
-            vmin=fft_mag_db.max() - 80,
-            vmax=fft_mag_db.max(),
-        )
-
-        for p in range(partial_freqs.shape[1]):
-            ax.plot(times_frames, partial_freqs[:, p],
-                    linewidth=1.5, color="lime", alpha=0.85)
-
-        half_frame = (H / sr) / 2.0
-        for (t, f_k, f_lo, f_hi) in search_windows:
-            t_center = times_frames[t]
-            ax.hlines(
-                [f_lo, f_hi],
-                t_center - half_frame,
-                t_center + half_frame,
-                colors="cyan", linewidths=0.6, alpha=0.45,
-            )
-
-        ax.set_ylim(80, min(4000, sr / 2))
-        ax.set_xlabel("Time (s)")
-        ax.set_ylabel("Frequency (Hz)")
-
-        title_parts = []
-        if note_name:
-            title_parts.append(note_name)
-        title_parts.append(f"f0={f0_guess:.1f} Hz")
-        title_parts.append(f"β={beta:.2e}")
-        title_parts.append(f"{n_partials} partials requested")
-        ax.set_title("Inharmonic partial tracking — " + "  |  ".join(title_parts))
-
-        plt.colorbar(pcm, ax=ax, label="Magnitude (dB)")
-        plt.tight_layout()
-        plt.show()
+            partial_amps[t, p_idx] = 20.0 * np.log10(float(cand_amps[best_idx]) + 1e-12)
+            partial_bins[t, p_idx] = b_lo + peaks_local[best_idx]
 
     return partial_freqs, partial_amps, partial_bins, search_windows
 
 
+def find_partials(
+        fft_frames: np.ndarray,
+        f0_guess: float,
+        beta: float,
+        sr: int,
+        N_fft: int,
+        H: int,
+        n_partials: int,
+        beta_max: float,  # ← upper physical bound
+        iteration: int,
+        amp_threshold: float = 0.005, # 0.005
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, list]:
+    """
+    Track inharmonic partials across STFT frames.
+
+    The search window per partial is now *asymmetric and physically bounded*:
+
+      lower =  k·f₀  −  F0_ERROR_SEMITONES slack
+               (inharmonicity never shifts partials down)
+      upper =  k·f₀·√(1 + β_max·k²)  +  BETA_MAX_SLACK_SEMITONES slack
+               (literature β_max ≈ 5e-4 caps the upward shift)
+
+    As beta converges during the outer iteration loop the upper bound
+    tightens automatically, making later iterations more discriminating.
+    """
+    n_frames, n_bins = fft_frames.shape
+    if np.abs(fft_frames).max() == 0.0:
+        empty = np.full((n_frames, n_partials), np.nan)
+        return empty, empty, np.full((n_frames, n_partials), -1, dtype=int), []
+
+    harmonic_orders = np.arange(1, n_partials + 1)
+    fft_mag = np.abs(fft_frames)
+    freq_axis = np.arange(n_bins, dtype=float) * sr / N_fft
+    inst_freq = _compute_inst_freq(fft_frames, N_fft, H, sr)
+
+    fft_norm = fft_mag / (fft_mag.max() + 1e-12)
+    fft_norm[fft_norm < amp_threshold] = 0.0
+
+    f0_per_frame = _refine_f0_per_frame(fft_norm, inst_freq, freq_axis, f0_guess, N_fft, sr)
+
+    partial_freqs, partial_amps, partial_bins, search_windows = _track_partials(
+        fft_norm, inst_freq, freq_axis,
+        f0_per_frame, beta, beta_max, sr, N_fft,
+        n_partials, harmonic_orders,
+        iteration=iteration,
+    )
+
+    return partial_freqs, partial_amps, partial_bins, search_windows
+
+def inharmonic_partial_tracking(
+    fft_frames, f0, beta, n_iter,
+    sr, N_fft, H, beta_max, threshold, plot, note_name=None,
+    beta_bump_factor: float = 10.0,    # beta bump factor
+    max_bumps: int = 3,
+):
+    last_partials = None
+    n_bumps = 0
+
+    for i in range(n_iter):
+        iteration = i
+
+        partial_freqs, partial_amps, partial_bins, search_windows = find_partials(
+            fft_frames=fft_frames,
+            f0_guess=f0,
+            beta=beta,
+            sr=sr, N_fft=N_fft, H=H,
+            n_partials=25,
+            beta_max=beta_max,
+            iteration=iteration,
+        )
+
+        t_frames = np.arange(partial_freqs.shape[0]) * (H / sr)
+        current_partials = Partials(
+            frametimes=t_frames,
+            frequencies=partial_freqs,
+            amplitudes=partial_amps,
+        )
+        last_partials = current_partials
+
+        # ---- Beta schätzen ----
+        betas, f0s = estimate_inharmonicity_coefficient_all_frets(current_partials, beta_max=beta_max, iteration=iteration, plot=plot)
+
+        if np.all(np.isnan(betas)) or len(betas) == 0:  # true when every frame failed
+            # no partials found -> beta bump
+            if n_bumps < max_bumps:
+                beta = min(beta * beta_bump_factor, beta_max)
+                n_bumps += 1
+                continue
+            else:
+                break
+
+        beta_new = kde_mode(np.array(betas))
+        if np.isnan(beta_new):
+            beta_new = np.nanmedian(betas)
+
+        # ---- f0 updaten ---- from model fit
+        f0_new = np.nanmedian(f0s)
+        if np.isfinite(f0_new):
+            f0 = f0_new
+
+        if not np.isfinite(beta_new) or beta_new < 0:
+            # Negatives/ungültiges Beta → Startwert hochsetzen, neu starten
+            if n_bumps < max_bumps:
+                beta = min(beta * beta_bump_factor, beta_max)
+                n_bumps += 1
+                continue
+            else:
+                break
+
+        # Convergence?
+        if abs(beta_new - beta) / (beta_new + 1e-12) < 0.01: #:
+            beta = beta_new
+            break
+
+        beta = beta_new
+
+    return last_partials, betas, beta, f0
+
+def process_note(
+    note,
+    note_signal,
+    audio_type,
+    beta_min,
+    beta_max,
+    sr,
+    W,
+    H,
+    threshold,
+    plot,
+):
+    # --- init features ---
+    if not isinstance(note.features, dict):
+        note.features = {}
+    if audio_type not in note.features:
+        note.features[audio_type] = Features()
+
+    # --- audio slicing ---
+    onset_sample = int(note.attributes.onset * sr)
+    offset_sample = int(note.attributes.offset * sr)
+    audio_data = note_signal.time
+    string_idx = note.attributes.string_index
+
+    if audio_type == "hex_debleeded":
+        note_audio = audio_data[string_idx, onset_sample:offset_sample]
+    else:
+        if audio_data.ndim == 1:
+            note_audio = audio_data[onset_sample:offset_sample]
+        else:
+            note_audio = audio_data[0, onset_sample:offset_sample]
+
+    if note_audio is None:
+        note.invalidate(FilterReason.NO_NOTE_AUDIO, step="find_partials")
+        return
+
+    # --- preprocessing ---
+    harmonic_audio = note_audio
+    if len(harmonic_audio) < W:
+        note.invalidate(FilterReason.HARMONIC_AUDIO_TOO_SHORT, step="find_partials")
+        return
+
+    # zero-padding to increase low-frequency candidate-picking
+    N_fft = 16*W
+    preprocessed_audio, window = note_audio_preprocess(harmonic_audio, W, H, N_fft)
+
+    if preprocessed_audio.ndim < 2:
+        note.invalidate(FilterReason.HARMONIC_AUDIO_TOO_SHORT, step="find_partials")
+        return
+
+    fft_frames = np.fft.rfft(preprocessed_audio, axis=1)
+
+    # --- partial tracking ---
+    partials, betas, beta, f0 = inharmonic_partial_tracking(
+        fft_frames=fft_frames,
+        f0=note.attributes.pitch,
+        beta=beta_min, # initial lowest guess for all guitars from literature -> the closer the inital guess, the better.
+        n_iter=50,
+        sr=sr,
+        N_fft=N_fft,
+        H=H,
+        threshold=threshold,
+        note_name=str(note.attributes.pitch),
+        plot=plot,
+        beta_max=beta_max,
+    )
+
+    note.partials[audio_type] = partials
+
+    if partials is None:
+        note.invalidate(FilterReason.NO_PARTIALS_FOUND, step="find_partials")
+        return
+
+    # beta single number averaging
+    betas = filter_betas(betas, beta_max)
+    betas = np.array(betas)
+
+    beta = kde_mode(betas)
+    if np.isnan(beta):
+        beta = np.nanmedian(betas)
+
+    # --- optional plotting ---
+    if plot:
+        n_frames, n_bins = fft_frames.shape
+        freq_axis = np.arange(n_bins) * sr / N_fft
+
+        fft_mag = np.abs(fft_frames)
+        fft_norm = fft_mag / (fft_mag.max() + 1e-12)
+        fft_norm_db = 20 * np.log10(fft_norm)
+
+        times_frames = np.arange(n_frames) * (H / sr)
+
+        fig, ax = plt.subplots(figsize=(12, 8))
+        pcm = ax.pcolormesh(
+            times_frames, freq_axis, fft_norm_db.T,
+            shading="auto", cmap="magma",
+            vmin=fft_norm_db.max() - 80,
+            vmax=fft_norm_db.max(),
+        )
+
+        partial_freqs = partials.frequencies
+
+        for p in range(partial_freqs.shape[1]):
+            ax.plot(times_frames, partial_freqs[:, p], color="lime", alpha=0.8, linewidth=2)
+
+        ax.set_ylim(80, min(2000, sr / 2))
+        ax.set_title(f"{note.attributes.pitch} Hz | β={beta:.2e} | String: {note.attributes.string_index}")
+        plt.colorbar(pcm, ax=ax)
+        plt.tight_layout()
+        plt.show()
+
+    # features
+    note.features[audio_type].f0 = note.attributes.pitch
+
+
+    if np.any(np.isfinite(betas)):
+        betas_measures = np.array([
+            np.nanmean(betas),
+            np.nanmedian(betas),
+            np.nanstd(betas),
+            np.nanvar(betas),
+            np.nanmin(betas),
+            np.nanmax(betas),
+            stats.skew(betas, nan_policy="omit"),
+            stats.kurtosis(betas, nan_policy="omit"),
+            kde_mode(betas),
+        ])
+    else:
+        betas_measures = np.full(9, np.nan)
+
+    sc_measures = spectral_centroid_feature(harmonic_audio, W, H, sr)
+
+    amp_dev, amp_decay = relative_amplitude_deviations(partials)
+    freq_dev = relative_freq_deviations(partials, beta)
+
+    valid_flags = np.isfinite(partials.amplitudes)
+    valid_measures = valid_flags.mean(axis=0)
+
+    # --- assign ---
+    feat = note.features[audio_type]
+    feat.beta = beta
+    feat.betas_measures = betas_measures
+    feat.spectral_centroid = sc_measures
+    feat.rel_partial_amplitudes = amp_dev
+    feat.rel_freq_deviations = freq_dev
+    feat.amp_decay_coefficients = amp_decay
+    feat.valid_partials = valid_measures
+
+    feat.fill_feature_vector()
+
 
 def process_single_file(args):
-    filepath, beta_max, plot, threshold, W, H, audio_types = args
+    filepath, beta_min, beta_max, plot, threshold, W, H, audio_types = args
 
     print(f"Calculating Features {filepath}")
 
-    # filepath = '/Users/simonbuechner/Documents/Studium/AKT/0MA/GuitarString-SourceSeparation/gse/noteData/GuitarSet/train/00_BN1-147-Gb_solo_track.pkl'
-
-    # load track
-    try:
-        with open(filepath, "rb") as f:
-            track = pickle.load(f)
-    except FileNotFoundError:
-        print(f"File not found: {filepath}")
-        return None
-    except EOFError:
-        print(f"File corrupted/empty: {filepath}")
-        return None
-    except Exception as e:
-        print(f"Unexpected error loading {filepath}: {e}")
-        return None
+    with open(filepath, "rb") as f:
+        track = pickle.load(f)
 
     for audio_type in audio_types:
         audio_filepath = track.audio_paths[audio_type]
@@ -594,203 +1024,22 @@ def process_single_file(args):
         sr = note_signal.sampling_rate
 
         for note in track.valid_notes:
-            if not isinstance(note.features, dict):
-                note.features = {}
-            if audio_type not in note.features:
-                note.features[audio_type] = Features()
-
-            """ audio preprocessing """
-            onset_sample = int(note.attributes.onset * sr)
-            offset_sample = int(note.attributes.offset * sr)
-            audio_data = note_signal.time  # shape: (6, N_samples)
-            string_idx = note.attributes.string_index
-
-            if audio_type == "hex_debleeded":
-                note_audio = audio_data[string_idx, onset_sample:offset_sample]
-            else:
-                # mono or mixed signal — collapse to mono if needed
-                if audio_data.ndim == 1:
-                    note_audio = audio_data[onset_sample:offset_sample]
-                else:
-                    note_audio = audio_data[0, onset_sample:offset_sample]
-
-            if note_audio is None:
-                note.invalidate(FilterReason.NO_NOTE_AUDIO, step="find_partials")
-                continue
-
-
-            harmonic_audio = note_audio
-            preprocessed_audio, window = note_audio_preprocess(harmonic_audio, W, H)
-
-            if len(harmonic_audio) < W:
-                note.invalidate(FilterReason.HARMONIC_AUDIO_TOO_SHORT, step="find_partials")
-                continue
-
-            if preprocessed_audio.ndim < 2:
-                note.invalidate(FilterReason.HARMONIC_AUDIO_TOO_SHORT, step="find_partials")
-                continue
-
-            # rfft: shape (n_frames, W//2+1)
-            fft_frames = np.fft.rfft(preprocessed_audio, axis=1)
-            fret = note.attributes.fret
-            f0 = note.attributes.pitch
-            beta = 5e-6  # warm start
-            n_iter = 50  # empirically 2–3 iterations usually suffice
-            BETA_CONVERGENCE_MIN = 1e-5  # unterhalb davon ist Konvergenz bedeutungslos
-
-            for i, iteration in enumerate(range(n_iter)):
-                partial_freqs, partial_amps, partial_bins, search_windows = find_partials(
-                    fft_frames=fft_frames,
-                    f0_guess=f0,
-                    beta=beta,
-                    sr=sr,
-                    W=W,
-                    H=H,  # ← pass hop size
-                    n_partials=25,
-                    partial_amp_threshold_dB=threshold,
-                    note_name=str(note.attributes.pitch),  # ← optional, used in title
-                    plot=(string_idx == 0 or string_idx == 1),
-                )
-
-
-                t_frames = np.arange(partial_freqs.shape[0]) * (H / sr)
-                # Store on the note object so the estimator can read them
-                note.partials[audio_type] = Partials(
-                    frametimes=t_frames,
-                    frequencies=partial_freqs,
-                    amplitudes=partial_amps,
-                )
-
-                # ---- estimate β from the current partial positions -----------------
-                betas = estimate_inharmonicity_coefficient_all_frets(
-                    note.partials[audio_type], plot=(string_idx == 4 or string_idx == 5),)
-
-                num_iterations = i
-
-                if len(betas) == 0:
-                    # note.invalidate(FilterReason.NO_BETAS, step="calculate_features")
-                    break
-
-                beta_new = kde_mode(np.array(betas))
-                if np.isnan(beta_new):
-                    beta_new = np.nanmedian(betas) # choose median if not enough values for kde
-
-
-
-                if beta_new < 0:
-                    # f0 ist wahrscheinlich überschätzt → leicht nach unten korrigieren
-                    f0 *= 0.995  # z.B. ~0.87 Cent nach unten
-                    beta = max(beta, 1e-7)  # Fallback, nicht 0
-
-                if not np.isfinite(beta_new) or beta_new <= 0:
-                    break  # or: keep current beta and break
-
-                if abs(beta_new - beta) / beta_new < 0.001 and beta_new >= BETA_CONVERGENCE_MIN:
-                    beta = beta_new
-                    break
-
-                beta = beta_new
-
-            # scale beta down to open string
-            betas0 = np.array(betas) * 2 ** (-fret / 6) if len(betas) > 0 else np.array([np.nan])
-            # betas0 = filter_betas(betas0, 5e-4) # filter to realistic values
-            beta0 = kde_mode(np.array(betas0))
-            if np.isnan(beta0):
-                beta0= np.nanmedian(betas0)
-
-            # clean up distributions -> no 0.0
-            if beta0 <=1e-7:
-                beta0 = np.nan
-
-
-            if note.partials[audio_type] is None:
-                note.invalidate(FilterReason.NO_PARTIALS_FOUND, step="find_partials")
-                continue
-
-            # ── Final plot after convergence ──────────────────────────────────────────
-            # if note.attributes.string_index == 0 or note.attributes.string_index == 1:
-            if True:
-                n_frames = fft_frames.shape[0]
-                n_bins = fft_frames.shape[1]
-                freq_axis = np.arange(n_bins, dtype=float) * sr / W
-
-                fft_mag = np.abs(fft_frames)
-                fft_norm = fft_mag / (fft_mag.max(axis=1, keepdims=True) + 1e-12)
-                fft_norm_db = 20.0 * np.log10(fft_norm + 1e-12)
-
-                times_frames = np.arange(n_frames) * (H / sr)
-
-                fig, ax = plt.subplots(figsize=(12, 8))
-                pcm = ax.pcolormesh(
-                    times_frames, freq_axis, fft_norm_db.T,
-                    shading="auto", cmap="magma",
-                    vmin=fft_norm_db.max() - 80,
-                    vmax=fft_norm_db.max(),
-                )
-
-                for p in range(partial_freqs.shape[1]):
-                    ax.plot(
-                        times_frames,
-                        partial_freqs[:, p],
-                        linewidth=1.5,
-                        color="lime",
-                        alpha=0.85,
-                        label="Gefundene Partialtöne" if p == 0 else None
-                    )
-
-                ax.set_ylim(80, min(8000, sr / 2))
-                ax.set_xlabel("Zeit in s")
-                ax.set_ylabel("Frequenz in Hz")
-                ax.legend()
-                ax.set_title(
-                    f"Inharmonische Partialtontschätzung — {note.attributes.pitch} Hz\n Saite: {note.attributes.string_index}"
-                    f"  |  F0={f0:.1f} Hz  |  β={beta0:.2e} |  Iteration: {num_iterations}"
-                )
-                plt.colorbar(pcm, ax=ax, label="Magnitude (dB)")
-                plt.tight_layout()
-                plt.show()
-            """ Features """
-
-            # assign attributed f0 to features
-            note.features[audio_type].f0 = note.attributes.pitch
-
-            # scaled to open string beta0
-            betas_measures = np.array([
-                np.nanmean(betas0, axis=0),
-                np.nanmedian(betas0, axis=0),
-                np.nanstd(betas0, axis=0),
-                np.nanvar(betas0, axis=0),
-                np.nanmin(betas0, axis=0),
-                np.nanmax(betas0, axis=0),
-                stats.skew(betas0, nan_policy="omit"),
-                stats.kurtosis(betas0, nan_policy="omit"),
-                kde_mode(betas0),  # already filters NaNs internally
-            ])
-
-
-            sc_measures = spectral_centroid_feature(harmonic_audio, W, H, sr)
-            note.features[audio_type].spectral_centroid = sc_measures
-
-            amp_deviation_measures, amp_decay_coefficients = relative_amplitude_deviations(note.partials[audio_type]) # (25,)
-            freq_deviation_measures = relative_freq_deviations(note.partials[audio_type], beta)
-
-            valid_partial_flags = np.isfinite(note.partials[audio_type].amplitudes)  # (18, 25) bool
-            valid_partial_measures = valid_partial_flags.mean(axis=0)  # (25,) float, range [0, 1]
-            note.features[audio_type].valid_partials = valid_partial_measures
-
-
-            # write into note.features
-            note.features[audio_type].beta = beta0
-            note.features[audio_type].betas_measures = betas_measures
-
-            note.features[audio_type].rel_partial_amplitudes = amp_deviation_measures
-            note.features[audio_type].rel_freq_deviations = freq_deviation_measures
-            note.features[audio_type].amp_decay_coefficients = amp_decay_coefficients  # was on note, not note.features
-            note.features[audio_type].fill_feature_vector()
-
+            process_note(
+                note=note,
+                note_signal=note_signal,
+                audio_type=audio_type,
+                beta_min=beta_min,
+                beta_max=beta_max,
+                sr=sr,
+                W=W,
+                H=H,
+                threshold=threshold,
+                plot=plot,
+            )
 
     track.save(filepath)
     print(f"Saved {filepath}")
+
     return f"Success! Feature Vector (raw) calculated for: {os.path.basename(filepath)}"
 
 
@@ -798,7 +1047,8 @@ def main(config):
     # read config
     W = config.getint('params', 'W')
     H = config.getint('params', 'H')
-    beta_max = config.getfloat('params', 'beta_max')
+    beta0_min = config.getfloat('params', 'beta0_min')
+    beta0_max = config.getfloat('params', 'beta0_max')
     threshold = config.getint('params', 'threshold')
     plot = config.getboolean('params', 'plot')
     audio_types_raw = config.get('paths', 'audio_types')
@@ -806,7 +1056,10 @@ def main(config):
 
     track_directory = config.get('paths', 'track_directory')
 
-    print(W, H, beta_max, threshold)
+    beta_min = beta0_min # a fret only scales beta upwards
+    beta_max = beta0_max * 2 ** (20/6) # 20th fret as large boundary
+
+    print(W, H,beta_min, beta_max, threshold)
     print(track_directory)
 
     # Collect all file paths
@@ -815,19 +1068,21 @@ def main(config):
         for filename in os.listdir(track_directory)
         if filename.endswith(".pkl")
         if os.path.isfile(os.path.join(track_directory, filename))
+        # and "solo" in filename
     ]
 
-    args_list = [(fp, beta_max, plot, threshold, W,H, audio_types) for fp in filepaths]
+    args_list = [(fp, beta_min, beta_max, plot, threshold, W,H, audio_types) for fp in filepaths]
 
-    # # Create pool and process files
-    # num_processes = mp.cpu_count() - 1  # Leave one core free
-    # with mp.Pool(processes=num_processes) as pool:
-    #     results = pool.map(process_single_file, args_list)
+    # Create pool and process files
+    num_processes = mp.cpu_count() - 1  # Leave one core free
+    with mp.Pool(processes=num_processes) as pool:
+        results = pool.map(process_single_file, args_list)
 
-    results = []
-    for args in args_list:
-        result = process_single_file(args)
-        results.append(result)
+    """ Disable Multiprocessing"""
+    # results = []
+    # for args in args_list:
+    #     result = process_single_file(args)
+    #     results.append(result)
 
     # Print results
     for i, result in enumerate(results, 1):

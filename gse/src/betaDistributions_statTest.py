@@ -49,7 +49,6 @@ def plot_beta_distributions(betas: Dict[int, List[float]]) -> List[np.ndarray]:
         all_values.append(values)
 
     global_min = min(v.min() for v in all_values if v.size > 0)
-    global_max = max(v.max() for v in all_values if v.size > 0)
     global_max = 2e-4
     global_bins = np.linspace(global_min, global_max, 201)  # 200 bins, uniform width
     bin_width = global_bins[1] - global_bins[0]
@@ -85,7 +84,7 @@ def plot_beta_distributions(betas: Dict[int, List[float]]) -> List[np.ndarray]:
         plt.tight_layout()
 
     # --- Overlay plot ---
-    DPI = 1200  # change to taste
+    DPI = 800  # change to taste
     # overlay plot
     fig, ax = plt.subplots(figsize=(8, 5), dpi=DPI)
     for i, (string_index, values) in enumerate(zip(sorted(betas.keys()), string_values)):
@@ -105,80 +104,8 @@ def plot_beta_distributions(betas: Dict[int, List[float]]) -> List[np.ndarray]:
     ax.set_xlim(global_min, global_max)
     ax.legend(loc='upper right')
     fig.tight_layout()
-
     plt.show()
 
-
-    #
-    #
-    # # style pltos
-    # # ── Aesthetic settings ──────────────────────────────────────────────────────
-    # # rcParams['font.family'] = 'DejaVu Sans'
-    # # rcParams['axes.spines.top'] = False
-    # # rcParams['axes.spines.right'] = False
-    #
-    # DPI = 1000
-    #
-    # # ── Palette: 4 pastel blues ──────────────────────────────────────────────────
-    # fill_colors = ["#2E86C1", "#5DADE2", "#85C1E9", "#AED6F1"]
-    # edge_colors = ["#1A5276", "#2471A3", "#2E86C1", "#5DADE2"]
-    #
-    # # ── Figure ────────────────────────────────────────────────────────────────────
-    # fig, ax = plt.subplots(figsize=(10, 5.5), dpi=DPI)
-    #
-    # ax.yaxis.grid(True, color="#D6EAF8", linewidth=0.6, zorder=0)
-    # ax.set_axisbelow(True)
-    #
-    # patches_for_legend = []
-    # plot_entries = [(k, v) for k, v in zip(sorted(betas.keys()), string_values) if k > 1][:4]
-    #
-    # for i, (string_index, values) in enumerate(plot_entries):
-    #     hist_values, _ = np.histogram(values, bins=global_bins, density=False)
-    #     hist_norm = hist_values / hist_values.max()
-    #
-    #     fc = fill_colors[i]
-    #     ec = edge_colors[i]
-    #
-    #     ax.bar(
-    #         bin_centers, hist_norm,
-    #         width=bin_width * 0.92,
-    #         alpha=0.55,
-    #         color=fc,
-    #         edgecolor=ec,
-    #         linewidth=0.7,
-    #         zorder=2 + i,
-    #     )
-    #     ax.plot(
-    #         bin_centers, hist_norm,
-    #         color=ec,
-    #         linewidth=1.6,
-    #         alpha=0.90,
-    #         zorder=6 + i,
-    #     )
-    #     # patches_for_legend.append(
-    #     #     mpatches.Patch(facecolor=fc, edgecolor=ec, linewidth=0.9,
-    #     #                    alpha=0.75, label=f"String {string_index} ({string_labels[string_index]})")
-    #     # )
-    #
-    # # ── Spines ────────────────────────────────────────────────────────────────────
-    # for spine in ['left', 'bottom']:
-    #     ax.spines[spine].set_color("#5D8AA8")
-    #     ax.spines[spine].set_linewidth(0.8)
-    #
-    # # ── Labels & title ────────────────────────────────────────────────────────────
-    # ax.set_title("Beta – Normierte Wahrscheinlichkeitsdichtefunktionen",
-    #              fontsize=13, fontweight='bold', color="#1A5276", pad=12)
-    # ax.set_xlabel("Beta", fontsize=10, color="#1A5276", labelpad=6)
-    # ax.set_ylabel("Normalisierte Häufigkeit", fontsize=10, color="#1A5276", labelpad=6)
-    # ax.tick_params(colors="#5D8AA8", labelsize=8.5)
-    # ax.set_xlim(global_min, global_max)
-    # ax.set_ylim(0, 1.12)
-    #
-    # fig.patch.set_facecolor("#F4F9FC")
-    # ax.set_facecolor("#F4F9FC")
-    #
-    # fig.tight_layout(pad=1.4)
-    # plt.show()
     return string_values
 
 
@@ -186,10 +113,14 @@ def main(config):
     track_directory = config.get('paths', 'track_directory')
     audio_types_raw = config.get('paths', 'audio_types')
     audio_types = [a.strip() for a in audio_types_raw.split(',')]
-    beta_max = config.getfloat('params', 'beta_max')
+    beta0_min = config.getfloat('params', 'beta0_min')
+    beta0_max = config.getfloat('params', 'beta0_max')
+
+    beta_min = beta0_min  # a fret only scales beta upwards
+    beta_max = beta0_max * 2 ** (20 / 6)  # 20th fret as large boundary
 
     # --- Step 2: Calculate features ---
-    calculate_features.main(config)
+    # calculate_features.main(config)
 
     # Collect all file paths
     filepaths = [
@@ -197,7 +128,7 @@ def main(config):
         for filename in os.listdir(track_directory)
         if filename.endswith(".pkl")
         if os.path.isfile(os.path.join(track_directory, filename))
-        # and "comp" in filename
+        and "solo" in filename
     ]
     # Initialize dictionary to collect betas by string index
     betas_by_string = {i: [] for i in range(6)}
@@ -205,7 +136,6 @@ def main(config):
 
     all_notes = []
     all_betas = []
-
 
     for audio_type in audio_types:
         for filepath in filepaths:
@@ -217,17 +147,16 @@ def main(config):
 
             all_notes.extend(track.valid_notes)
             for note in track.valid_notes:
-                if note.features[audio_type].beta is None:
-                    continue
                 if audio_type not in note.features:
+                    continue
+                if note.features[audio_type].beta is None:
                     continue
                 string_index = note.attributes.string_index
                 if note.origin == "single_note":
-                    string_index += -1
+                    string_index -= 1
 
-                betas_by_string[string_index].append(note.features[audio_type].beta)
-                all_betas.append(note.features[audio_type].beta)
-
+                betas_by_string[string_index].append(note.features[audio_type].beta0(note.attributes.fret))
+                all_betas.append(note.features[audio_type].beta0(note.attributes.fret))
 
     cleaned_betas_by_string = plot_beta_distributions(betas_by_string)
 
@@ -262,7 +191,7 @@ def main(config):
 if __name__ == "__main__":
     # test on the following subsets:
     config = configparser.ConfigParser()
-    config.read('configs/config_test_solo.ini')
+    config.read('configs/config_train_GuitarSet.ini')
 
     main(config)
     # main(subset_comp)
