@@ -1,2 +1,4 @@
 amt/logs/2024/ptf_all_cross_rebal5_mirst_xk2_edr005_attend_c_full_plus_b100/checkpoints/model.ckpt filter=lfs diff=lfs merge=lfs -text
 amt/logs/2024/notask_all_cross_v6_xk2_amp0811_gm_ext_plus_nops_b72 filter=lfs diff=lfs merge=lfs -text
+*.ckpt filter=lfs diff=lfs merge=lfs -text
+amt/logs/2024/notask_all_cross_v6_xk2_amp0811_gm_ext_plus_nops_b72/** filter=lfs diff=lfs merge=lfs -text
