@@ -177,6 +177,86 @@ def cache_zenodo_token(zenodo_token: str) -> None:
     print("Your Zenodo token is cached.")
 
 
+def option_prompt(data_home: os.PathLike, no_download: bool = False) -> None:
+    print("Select the dataset(s) to install (enter comma-separated numbers):")
+    print("1. Slakh")
+    print("2. MusicNet")
+    print("3. MAPS")
+    print("4. Maestro")
+    print("5. GuitarSet")
+    print("6. ENST-drums")
+    print("7. EGMD")
+    print("8. MIR-ST500 ** Restricted Access **")
+    print("9. CMedia ** Restricted Access **")
+    print("10. RWC-Pop (Bass and Full) ** Restricted Access **")
+    print("11. MIR-1K (NOT SUPPORTED)")
+    print("12. URMP")
+    print("13. IDMT-SMT-Bass")
+    print("14. Random-NSynth")
+    print("15. Geerdes")
+    print("16. Regenerate Dataset Stats (experimental)")
+    print("17. Request Token for ** Restricted Access **")
+    print("18. Exit")
+
+    choice = input("Enter your choices (multiple choices with comma): ")
+    choices = [c.strip() for c in choice.split(',')]
+
+    if "18" in choices:
+        print("Exiting.")
+    else:
+        # ask for Zenodo token
+        for c in choices:
+            if int(c) in [8, 9, 10]:
+                if no_download is True:
+                    zenodo_token = None
+                else:
+                    zenodo_token = input("Enter Zenodo token, or press enter to use the cached token:")
+                    if zenodo_token == "":
+                        zenodo_token = get_cached_zenodo_token()
+                    else:
+                        cache_zenodo_token(zenodo_token)
+                    break
+
+        if "1" in choices:
+            install_slakh(data_home, no_down=no_download)
+        if "2" in choices:
+            install_musicnet(data_home, no_down=no_download)
+        if "3" in choices:
+            install_maps(data_home, no_down=no_download)
+        if "4" in choices:
+            install_maestro(data_home, no_down=no_download)
+        if "5" in choices:
+            install_guitarset(data_home, no_down=no_download)
+        if "6" in choices:
+            install_enstdrums(data_home, no_down=no_download)
+        if "7" in choices:
+            install_egmd(data_home, no_down=no_download)
+        if "8" in choices:
+            install_mirst500(data_home, zenodo_token, no_down=no_download)
+        if "9" in choices:
+            install_cmedia(data_home, zenodo_token, no_down=no_download)
+        if "10" in choices:
+            install_rwc_pop(data_home, zenodo_token, no_down=no_download)
+        if "11" in choices:
+            install_mir1k(data_home, no_down=no_download)
+        if "12" in choices:
+            install_urmp(data_home, no_down=no_download)
+        if "13" in choices:
+            install_idmt_smt_bass(data_home, no_down=no_download)
+        if "14" in choices:
+            install_random_nsynth(data_home, no_down=no_download)
+        if "15" in choices:
+            install_geerdes(data_home)  # not available for download
+        if "16" in choices:
+            regenerate_dataset_stats(data_home, no_down=no_download)
+        if "17" in choices:
+            print("\nPlease visit https://zenodo.org/records/10016397 to request a Zenodo token.")
+            print("Upon submitting your request, you will receive an email with a link labeled 'Access the record'.")
+            print("Copy the token that follows 'token=' in that link.")
+        if not any(int(c) in range(16) for c in choices):
+            print("Invalid choice(s). Please enter valid numbers separated by commas.")
+
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='Dataset installer script.')
@@ -202,5 +282,4 @@ if __name__ == "__main__":
     os.makedirs(data_home, exist_ok=True)
     no_download = args.nodown
 
-    print("Installing GuitarSet ...")
-    install_guitarset(data_home, no_down=no_download)
+    option_prompt(data_home, no_download)

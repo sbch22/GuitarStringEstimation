@@ -3,17 +3,15 @@
 import os
 import sys
 sys.path.append(os.path.abspath(''))
-#dir_path = os.path.dirname(os.path.realpath(__file__))
-#os.chdir('./src')
-#dir_path_post = os.path.dirname(os.path.realpath(__file__))
+
 
 from collections import Counter
 import argparse
 import torch
 import torchaudio
-import numpy as np
 import torch.serialization
-import utils.task_manager
+from typing import Dict, Literal
+
 
 from model.init_train import initialize_trainer, update_config
 from utils.task_manager import TaskManager
@@ -23,21 +21,11 @@ from utils.utils import Timer
 from utils.audio import slice_padded_array
 from utils.note2event import mix_notes
 from utils.event2note import merge_zipped_note_events_and_ties_to_notes
-from utils.utils import write_model_output_as_midi, write_err_cnt_as_json
+from utils.utils import write_model_output_as_midi
 from model.ymt3 import YourMT3
 
 
-# @title GradIO helper
-#import os
-#import subprocess
-import glob
-from typing import Tuple, Dict, Literal
-from ctypes import ArgumentError
-#from google.colab import output
 
-#from pytube import YouTube
-#import gradio as gr
-import torchaudio
 
 #%% @title model helper
 def load_model_checkpoint(args=None):
@@ -179,33 +167,15 @@ def transcribe(model, audio_info):
         n_err_cnt += n_err_cnt_ch
     pred_notes = mix_notes(pred_notes_in_file)  # This is the mixed notes from all channels
 
-
-    #######################################################################
-    # export tokens (pred_notes) here for further Examination and Evaluation
-
-    # pred_notes ist eine Liste aus Note-Objects. Diese kann einfach auf die nötigen Daten reduziert werden
-    # Dann an  process audio zurückgeben
-
-
-
     # Write MIDI
-    #output_dir = 'Users/simonbuechner/Documents/Studium/AKT/3.Semester_GRAZ_WS2425/Toningenieur-Projekt/dev/YourMT3_evaluation/amt/content/'
-    #print(f"Transcribe working directory: {os.getcwd()}") --> src/
     output_directory = '../content/'
 
     output_file = write_model_output_as_midi(pred_notes, output_directory,
                               audio_info['track_name'], model.midi_output_inverse_vocab)
     t.stop(); t.print_elapsed_time("post processing");
-    #output_file =  os.path.join(output_file, audio_info['track_name']  + '.mid')
-
-    #output_directory = os.path.abspath(midifile)
-    #print(f"Resolved output directory: {output_directory}")
-    #midifile = os.path.join(midifile, audio_info['track_name'] + '.mid')
 
     output_file = os.path.abspath(output_file)
-    #assert os.path.exists(output_directory)
     assert os.path.exists(output_file)
-
     return output_file
 
 
@@ -252,7 +222,7 @@ def process_audio(model, audio_filepath):
 
 # %% @title Load Checkpoint
 def main():
-    model_name = "YPTF+Single (noPS)" # @param ["YMT3+", "YPTF+Single (noPS)", "YPTF+Multi (PS)", "YPTF.MoE+Multi (noPS)", "YPTF.MoE+Multi (PS)"]
+    model_name = "YMT3+" # @param ["YMT3+", "YPTF+Single (noPS)", "YPTF+Multi (PS)", "YPTF.MoE+Multi (noPS)", "YPTF.MoE+Multi (PS)"]
     precision = '32' # @param ["32", "bf16-mixed", "16"]
     project = '2024'
 
@@ -287,7 +257,7 @@ def main():
 
     #%% open audio and transcribe
     print(f"Current working directory: {os.getcwd()}")
-    audio_filepath = '../../examples/00_Funk1-97-C_comp_mic_pshift-3.wav'
+    audio_filepath = '../content/nocturneNr2.wav'
 
     # Midi Filepath midi_file
     process_audio(model ,audio_filepath)
