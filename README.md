@@ -44,7 +44,7 @@ cd GuitarStringEstimation
 ### 3. Switch to the YMT3 branch
 
 ```bash
-git checkout YMT3
+GIT_LFS_SKIP_SMUDGE=1 git checkout YMT3
 ```
 
 ### 4. Download checkpoints (~3.5 GB)
