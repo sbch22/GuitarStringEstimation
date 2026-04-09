@@ -6,7 +6,6 @@ import glob
 from collections import defaultdict
 from gse.src.utils.FeatureNote_dataclass import FeatureNote, Attributes, Features
 from gse.src.utils.Track_dataclass import Track
-import pyfar as pf
 import csv
 
 def create_track_from_jam(jam_file: str, track_id: str) -> Track:
@@ -70,7 +69,7 @@ def preprocess_dataset(data_dir, save_dir):
     assert len(all_ann_files) == 360
 
     # load Senva train file list
-    with open('../../data/GuitarSet/GuitarStringSeparation-MF-NMF-NMFD-master/trainSet.csv', newline='') as csvfile:
+    with open('../configs/trainSet.csv', newline='') as csvfile:
         train_filename_list = []
         spamreader = csv.reader(csvfile)
         for row in spamreader:
@@ -83,7 +82,7 @@ def preprocess_dataset(data_dir, save_dir):
             train_filename_list.append(filename_solo)
 
     # load Senva test file list
-    with open('../../data/GuitarSet/GuitarStringSeparation-MF-NMF-NMFD-master/testSet.csv', newline='') as csvfile:
+    with open('../configs/testSet.csv', newline='') as csvfile:
         test_filename_list_comp = []
         test_filename_list_solo = []
         spamreader = csv.reader(csvfile)
@@ -188,8 +187,8 @@ def preprocess_dataset(data_dir, save_dir):
 
 # Main
 def main():
-    data_dir = '../../data/GuitarSet/GuitarSet_raw'
-    save_dir = '../noteData/'
+    data_dir = '../../data/GuitarSet' # GuitarSet directory
+    save_dir = '../noteData/' # save directory -> this saves all track & note objects
     preprocess_dataset(data_dir, save_dir)
 
 # %%

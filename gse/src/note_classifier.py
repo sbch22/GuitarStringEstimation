@@ -18,7 +18,7 @@ from sklearn.inspection import permutation_importance
 
 # import functions
 import calculate_features
-import find_partials
+import inharmonic_partial_tracking
 from utils.Track_dataclass import filter_analysis
 
 

@@ -1,21 +1,17 @@
-import configparser
 import os
 import sys
 
-
 sys.path.append(os.path.abspath(''))
-import multiprocessing as mp
 import os
 import pickle
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.stats import beta, shapiro, bartlett, levene, f_oneway
+from scipy.stats import bartlett, levene, f_oneway
 from typing import Dict, List, Tuple
-from collections import defaultdict
-from configparser import ConfigParser
 from pathlib import Path
+import configparser
 
-from gse.src import calculate_features
+
 
 
 def check_variance_homogeneity(string_values: List[np.ndarray],
@@ -113,11 +109,6 @@ def main(config):
     track_directory = config.get('paths', 'track_directory')
     audio_types_raw = config.get('paths', 'audio_types')
     audio_types = [a.strip() for a in audio_types_raw.split(',')]
-    beta0_min = config.getfloat('params', 'beta0_min')
-    beta0_max = config.getfloat('params', 'beta0_max')
-
-    beta_min = beta0_min  # a fret only scales beta upwards
-    beta_max = beta0_max * 2 ** (20 / 6)  # 20th fret as large boundary
 
     # --- Step 2: Calculate features ---
     # calculate_features.main(config)
@@ -189,11 +180,7 @@ def main(config):
 
 
 if __name__ == "__main__":
-    # test on the following subsets:
     config = configparser.ConfigParser()
     config.read('configs/config_train_GuitarSet.ini')
 
     main(config)
-    # main(subset_comp)
-    # main(subset_GOAT)
-    # main(subset_single_note_IDMT)

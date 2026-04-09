@@ -85,7 +85,7 @@ class FilterReason(Enum):
     NO_STRING = "no string found by model"
     MISMATCH_BETWEEN_STRINGS = "note assignment likely wring between strings due to bleed"
     NO_MATCH = "no matching note could be found between model output and ground truth"
-    # find_partials.py
+    # inharmonic_partial_tracking.py
     NO_NOTE_AUDIO = "no note audio found from onsets"
     NO_HARMONIC_AUDIO = "no harmonic audio after extraction"
     HARMONIC_AUDIO_TOO_SHORT = "harmonic audio too short"
