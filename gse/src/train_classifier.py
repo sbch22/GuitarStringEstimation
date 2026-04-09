@@ -14,7 +14,7 @@ from sklearn.model_selection import train_test_split, StratifiedKFold, GridSearc
 from configparser import ConfigParser
 
 from utils.Track_dataclass import filter_analysis
-from partialtracking import calculate_features
+from feature_extraction import calculate_features
 
 
 # ── Grid für GridSearch ──────────────────────────────────────────────────────
@@ -22,7 +22,6 @@ PARAM_GRID = {
     "svm__C":     [0.1, 1, 10, 100],
     "svm__gamma": ["scale", "auto", 0.001, 0.01],
 }
-
 
 def build_pipeline():
     """SVM pipeline with fixed hyperparameters (C=10, gamma=0.001, rbf)."""

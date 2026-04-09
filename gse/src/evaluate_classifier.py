@@ -13,7 +13,7 @@ import seaborn as sns
 import joblib
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 
-from gse.src.partialtracking import calculate_features
+from gse.src.feature_extraction import calculate_features
 from gse.src.utils.Track_dataclass import filter_analysis
 
 

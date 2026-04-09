@@ -12,8 +12,6 @@ from pathlib import Path
 import configparser
 
 
-
-
 def check_variance_homogeneity(string_values: List[np.ndarray],
                                test_type: str = "levene") -> Tuple[str, float, float]:
     if test_type == "bartlett":

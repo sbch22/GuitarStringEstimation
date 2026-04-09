@@ -135,10 +135,10 @@ def main(subset):
 
 
     """ Choose between standard output (/martin) and same model with YMT3 Onsets (/martin/YMT3_Onsets)"""
-    # transcription_directory = '../../data/GuitarSet/hjerrild_transcription/audio_mono-mic/martin/'
-    transcription_directory = '../../data/GuitarSet/hjerrild_transcription/audio_mono-mic/martin/YMT3_Onsets/'
-    # transcription_directory = '../../data/GuitarSet/hjerrild_transcription/audio_mono-mic/martin/YMT3_Onsets_and_f0/'
-    # transcription_directory = '../../data/GuitarSet/hjerrild_transcription/audio_mono-mic/GuitarSet/'
+    # transcription_directory = '../data/GuitarSet/hjerrild_transcription/audio_mono-mic/martin/'
+    transcription_directory = '../data/GuitarSet/hjerrild_transcription/audio_mono-mic/martin/YMT3_Onsets/'
+    # transcription_directory = '../data/GuitarSet/hjerrild_transcription/audio_mono-mic/martin/YMT3_Onsets_and_f0/'
+    # transcription_directory = '../data/GuitarSet/hjerrild_transcription/audio_mono-mic/GuitarSet/'
 
 
 
