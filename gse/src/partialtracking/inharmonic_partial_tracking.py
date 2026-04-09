@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+# from __future__ import annotations
 import os
 import sys
 sys.path.append(os.path.abspath(''))
@@ -11,6 +10,7 @@ from gse.src.utils.FeatureNote_dataclass import Partials
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from matplotlib.lines import Line2D
+from scipy import stats
 
 def estimate_inharmonicity_coefficient_all_frets(partials, beta_max, iteration, plot, plot_frame=10):
     """
@@ -238,6 +238,32 @@ def estimate_inharmonicity_coefficient_all_frets(partials, beta_max, iteration, 
             plt.show()
 
     return betas, f0s
+
+
+
+def kde_mode(data):
+    data = np.asarray(data, dtype=float)
+    data = data[np.isfinite(data)]
+
+    # not enough data
+    if len(data) < 5:
+        return np.nan
+
+    # not enough variation
+    if np.unique(data).size < 3:
+        return np.nan
+
+    # near-zero variance
+    if np.std(data) < 1e-10:
+        return data.mean()
+
+    try:
+        kde = stats.gaussian_kde(data, bw_method="scott")
+        x = np.linspace(data.min(), data.max(), 1000)
+        return x[np.argmax(kde(x))]
+    except np.linalg.LinAlgError:
+        return np.nan
+
 
 
 """ PARTIAL TRACKING """

@@ -7,20 +7,18 @@ sys.path.append(os.path.abspath(''))
 import multiprocessing as mp
 import os
 import pickle
-from configparser import ConfigParser
 import pyfar as pf
 import librosa as lib
 from scipy import stats
 import numpy as np
 from scipy.signal import find_peaks
 import scipy
-
-from utils.FeatureNote_dataclass import FilterReason
-from utils.FeatureNote_dataclass import Features
 import matplotlib.pyplot as plt
 
 
-import inharmonic_partial_tracking
+from gse.src.utils.FeatureNote_dataclass import FilterReason
+from gse.src.utils.FeatureNote_dataclass import Features
+from gse.src.partialtracking import inharmonic_partial_tracking
 
 
 def note_audio_preprocess(audio, W, H, N_fft):
@@ -222,28 +220,6 @@ def filter_betas(betas, beta_max):
 
     return filtered_values
 
-def kde_mode(data):
-    data = np.asarray(data, dtype=float)
-    data = data[np.isfinite(data)]
-
-    # not enough data
-    if len(data) < 5:
-        return np.nan
-
-    # not enough variation
-    if np.unique(data).size < 3:
-        return np.nan
-
-    # near-zero variance
-    if np.std(data) < 1e-10:
-        return data.mean()
-
-    try:
-        kde = stats.gaussian_kde(data, bw_method="scott")
-        x = np.linspace(data.min(), data.max(), 1000)
-        return x[np.argmax(kde(x))]
-    except np.linalg.LinAlgError:
-        return np.nan
 
 def process_note(
     note,
@@ -474,10 +450,3 @@ def main(config):
     # Print results
     for i, result in enumerate(results, 1):
         print(f"[{i}/{len(results)}] {result}")
-
-
-if __name__ == "__main__":
-    config = ConfigParser()
-    config.read('configs/config_train_dev_GuitarSet.ini')
-
-    main(config)
