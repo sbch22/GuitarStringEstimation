@@ -222,7 +222,7 @@ def process_audio(model, audio_filepath):
 
 # %% @title Load Checkpoint
 def main():
-    model_name = "YMT3+" # @param ["YMT3+", "YPTF+Single (noPS)", "YPTF+Multi (PS)", "YPTF.MoE+Multi (noPS)", "YPTF.MoE+Multi (PS)"]
+    model_name = "YPTF+Single (noPS)" # @param ["YMT3+", "YPTF+Single (noPS)", "YPTF+Multi (PS)", "YPTF.MoE+Multi (noPS)", "YPTF.MoE+Multi (PS)"]
     precision = '32' # @param ["32", "bf16-mixed", "16"]
     project = '2024'
 
