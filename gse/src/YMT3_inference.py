@@ -387,6 +387,6 @@ def main(track_directory, audio_type):
         print(f"Processed file {file_counter}: {filename}")
 
 if __name__ == "__main__":
-    main('../noteData/GuitarSet/train/', audio_type="hex_debleeded")
-    main('../noteData/GuitarSet/test/solo/', audio_type="hex_debleeded")
-    main('../noteData/GuitarSet/test/comp/', audio_type="hex_debleeded")
+    main('../../data/GuitarSet/noteData/train/', audio_type="hex_debleeded")
+    main('../../data/GuitarSet/noteData/test/solo/', audio_type="hex_debleeded")
+    main('../../data/GuitarSet/noteData/test/comp/', audio_type="hex_debleeded")

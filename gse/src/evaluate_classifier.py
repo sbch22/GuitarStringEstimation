@@ -28,7 +28,6 @@ STRING_NAMES = ['E2', 'A2', 'D3', 'G3', 'B3', 'E4']
 # Default: all filters active
 FILTER_CONFIG_DEFAULT = {
     "physical_range":   True,
-    "fret_probability": False,
     "centroid_penalty": True,
     "string_occupancy": True,
 }
@@ -85,16 +84,6 @@ def plausibility_filter(probabilities, notes, centroid_tracker, config=None):
         3: (55, 75), 4: (59, 79), 5: (64, 84),
     }
 
-    fret_frequency_GOAT = np.array([
-        [3646, 1033, 1162, 1727,  799, 1294,  417,  825,  528,  657,  184,  207,  236,  66,  26,  70,  11,  8,  0,  8],
-        [3888,  304, 2546, 2027, 1758, 2421, 1559, 2435,  905, 1521,  544,  937,  278, 117, 244,  62,  38, 20,  0,  0],
-        [4488,  263, 2922, 1070, 1562, 1915, 1964, 2603, 1220, 2191,  950, 1631,  611, 668, 523,  97,  53, 67, 11, 28],
-        [3452,  499, 2507,  759, 2309, 1698, 1542, 1939, 1630, 2414, 1484,  915, 1326, 369, 654, 153, 156,141, 75, 79],
-        [3100,  456, 1031, 1728,  882, 1530,  786, 1267,  754, 1155,  982,  956,  779, 709, 472, 508, 109,305, 83, 73],
-        [1789,  208, 1078,  757,  664,  416,  250,  578,  202,  386,  417,  432,  571, 261, 261, 174, 145,220, 20, 65],
-    ])
-    fret_prob_GOAT = fret_frequency_GOAT / fret_frequency_GOAT.sum(axis=1, keepdims=True)
-
     filtered_probabilities = []
 
     for note, prob in zip(notes, probabilities):
@@ -106,16 +95,6 @@ def plausibility_filter(probabilities, notes, centroid_tracker, config=None):
             for string in range(len(prob)):
                 low, high = string_ranges[string]
                 if not (low <= midi_pitch <= high):
-                    masked_prob[string] = 0.0
-
-        if config["fret_probability"]:
-            for string in range(len(prob)):
-                if masked_prob[string] == 0.0:
-                    continue
-                fret = get_fret(midi_pitch, string)
-                if 0 <= fret < fret_prob_GOAT.shape[1]:
-                    masked_prob[string] *= fret_prob_GOAT[string, fret]
-                else:
                     masked_prob[string] = 0.0
 
         if config["centroid_penalty"]:

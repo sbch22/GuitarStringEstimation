@@ -15,7 +15,6 @@ def ensure_dir(path: str):
     """Ensure directory for given path exists."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
 
-
 def create_track_from_jam(jam_file: str, track_id: str) -> Track:
     """Convert JAMS file to Track object."""
     jam = jams.load(jam_file)
@@ -82,7 +81,6 @@ def create_track_from_jam(jam_file: str, track_id: str) -> Track:
 
     return track
 
-
 def load_csv_list(path: str, add_solo: bool = False) -> list:
     """Load filenames from CSV, optionally add solo versions."""
     filenames = []
@@ -107,7 +105,6 @@ def build_audio_paths(base_name: str, data_dir: str) -> dict:
         "hex": os.path.join(data_dir, "audio_hex-pickup_original", f"{base_name}_hex.wav"),
     }
 
-
 def process_and_save(track_id, ann_path, save_path, data_dir):
     """Create track, attach audio paths, and save."""
     track = create_track_from_jam(ann_path, track_id)
@@ -118,7 +115,6 @@ def process_and_save(track_id, ann_path, save_path, data_dir):
     print(f"Saved: {save_path}")
 
     return track
-
 
 def preprocess_dataset(data_dir: str, save_dir: str):
     """Preprocess GuitarSet dataset and save tracks + split CSV."""
@@ -145,9 +141,9 @@ def preprocess_dataset(data_dir: str, save_dir: str):
             track_filename = f"{track_id}_track.pkl"
 
             if subset:
-                save_path = os.path.join(save_dir, "GuitarSet", split, subset, track_filename)
+                save_path = os.path.join(save_dir, split, subset, track_filename)
             else:
-                save_path = os.path.join(save_dir, "GuitarSet", split, track_filename)
+                save_path = os.path.join(save_dir, split, track_filename)
 
             track = process_and_save(track_id, ann_path, save_path, data_dir)
 
@@ -164,7 +160,7 @@ def preprocess_dataset(data_dir: str, save_dir: str):
     handle_split(train_list, "train")
 
     # Save CSV
-    split_csv = os.path.join(save_dir, "GuitarSet", "split.csv")
+    split_csv = os.path.join(save_dir, "split.csv")
     ensure_dir(split_csv)
 
     with open(split_csv, "w", newline="") as f:
@@ -178,7 +174,7 @@ def preprocess_dataset(data_dir: str, save_dir: str):
 def main():
     """Entry point."""
     data_dir = "../../data/GuitarSet"
-    save_dir = "../noteData/"
+    save_dir = "../../data/GuitarSet/noteData/"
     preprocess_dataset(data_dir, save_dir)
 
 
