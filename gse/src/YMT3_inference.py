@@ -265,59 +265,6 @@ def transcribe_notes(model, audio_info: Dict, audio_tensor: torch.Tensor, sample
 
     return final_notes
 
-
-def process_GOAT_track(track, model, audio_type):
-    audio_filepath = track.audio_paths[audio_type]
-    audio_signal = pf.io.read_audio(audio_filepath)
-
-    # strings_signal = track.audio.hex
-    sr = audio_signal.sampling_rate
-    audio_data = audio_signal.time
-
-    audio_tensor = torch.from_numpy(audio_data).float()
-    audio_info = {
-        'sample_rate': sr,
-        'bits_per_sample': 16,  # where do I get this from pyfar?
-        'num_channels': 1,
-        'num_frames': audio_data.shape[-1],
-        'duration': audio_data.shape[-1] / sr,
-        'encoding': 'pcm',
-    }
-    print(f"Audio info: {audio_info}")
-
-    model_string_notes = transcribe_notes(model, audio_info, audio_tensor, sr)
-
-    for note in model_string_notes:
-        # Create an Attributes object for this note
-        attr = Attributes(
-            midi_note=note.pitch,  # redundant but often useful for comparison
-            is_drum=note.is_drum,
-            program=note.program,
-            onset=note.onset,
-            offset=note.offset,
-            velocity=note.velocity,
-            pitch=round(440 * 2 ** ((note.pitch - 69) / 12), 3)
-        )
-
-        # Wrap it into a FeatureNote
-        fnote = FeatureNote(
-            origin='model',
-            attributes=attr,
-            valid=True
-        )
-
-        # Append to this track’s note list
-        track.notes.append(fnote)
-
-    track.match_notes_GOAT(track, delta=0.050)  # 50ms
-
-    for note in track.valid_notes:
-        note.what_fret()
-
-    filter_analysis(track.notes)
-    print("Next Track ...")
-
-
 def process_GuitarSet_track(track, model):
     # load audio
     filepath_hex_debeleed = track.audio_paths["hex_debleeded"]
@@ -417,9 +364,6 @@ def main(track_directory, audio_type):
     model = load_model_checkpoint(args=args)
 
     file_counter = 0
-
-    files_to_analyze = 20
-
     # Process each audio file in the directory
     for filename in os.listdir(track_directory):
         # skip directories
@@ -435,11 +379,6 @@ def main(track_directory, audio_type):
         if "GuitarSet" in filepath:
             process_GuitarSet_track(track, model)
 
-        elif "GOAT" in filepath:
-            process_GOAT_track(track, model, audio_type)
-
-
-        # save_path = os.path.join(track_directory, 'dev', filename)
         save_path = os.path.join(track_directory, filename)
 
         track.save(save_path)
@@ -447,14 +386,7 @@ def main(track_directory, audio_type):
         file_counter += 1
         print(f"Processed file {file_counter}: {filename}")
 
-        # if file_counter >= files_to_analyze: break
-
 if __name__ == "__main__":
-    # TODO: choose which test and train sets to call the classification upon
-
     main('../noteData/GuitarSet/train/', audio_type="hex_debleeded")
-    # main('../noteData/GuitarSet/test/solo/', audio_type="hex_debleeded")
-    # main('../noteData/GuitarSet/test/comp/', audio_type="hex_debleeded")
-
-    # main( track_directory='../noteData/GOAT/test/', audio_type="clean")
-    # main( track_directory='../noteData/GOAT/train/', audio_type="clean")
+    main('../noteData/GuitarSet/test/solo/', audio_type="hex_debleeded")
+    main('../noteData/GuitarSet/test/comp/', audio_type="hex_debleeded")
