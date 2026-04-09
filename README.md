@@ -41,7 +41,13 @@ $env:GIT_LFS_SKIP_SMUDGE=1; git clone https://github.com/sbch22/GuitarStringEsti
 cd GuitarStringEstimation
 ```
 
-### 3. Download checkpoints (~3.5 GB)
+### 3. Switch to the YMT3 branch
+
+```bash
+git checkout YMT3
+```
+
+### 4. Download checkpoints (~3.5 GB)
 
 ```bash
 git lfs pull
@@ -49,7 +55,7 @@ git lfs pull
 
 This may take a few minutes depending on your connection.
 
-### 4. Create virtual environment
+### 5. Create virtual environment
 
 **Mac / Linux:**
 ```bash
@@ -65,7 +71,7 @@ py -3.11 -m venv .venv
 pip install -r requirements.txt
 ```
 
-### 5. Run the demo
+### 6. Run the demo
 
 ```bash
 cd amt/src
