@@ -199,23 +199,23 @@ def plot_combined_confusion_matrices(results_solo, results_comp, normalize=True,
     rc = {
         'text.usetex':        True,
         'font.family':        'serif',
-        'font.serif':         ['Computer Modern Roman'],
-        'axes.labelsize':     7,
-        'xtick.labelsize':    7,
-        'ytick.labelsize':    7,
-        'axes.titlesize':     7,
+        # 'font.serif':         ['Computer Modern Roman'],
+        'axes.labelsize':     10,
+        'xtick.labelsize':    10,
+        'ytick.labelsize':    10,
+        'axes.titlesize':     10,
     }
 
     with matplotlib.rc_context(rc):
         fig, axes = plt.subplots(
             nrows=2, ncols=1,
-            figsize=(3.52, 3.52 * 1.75),   # width × ~1.75 for two stacked panels
+            figsize=(3.40, 3.40),   # width × ~1.75 for two stacked panels
         )
 
         for ax, results, title in zip(
             axes,
             [results_solo, results_comp],
-            ['Solo', 'Comp'],
+            ['Solo', 'Comping'],
         ):
             cm = results['confusion_matrix'].copy().astype(float)
             if normalize:
@@ -231,16 +231,17 @@ def plot_combined_confusion_matrices(results_solo, results_comp, normalize=True,
                 xticklabels=labels, yticklabels=labels,
                 vmin=0, vmax=vmax,
                 ax=ax,
-                annot_kws={'size': 7},
+                annot_kws={'size': 9},
                 cbar=False,
+                linewidths=0.5,
+                linecolor='lightgray',
             )
 
             # Horizontal tick labels on both axes
             ax.set_xticklabels(labels, rotation=0, ha='center')
             ax.set_yticklabels(labels, rotation=0, va='center')
+            ax.tick_params(axis='both', which='both', length=0)
             ax.set_title(title)
-            ax.set_xlabel('Predicted string')
-            ax.set_ylabel('True string')
 
         plt.tight_layout(pad=0.5)
 
@@ -446,14 +447,27 @@ def main():
     all_results    = {}
 
     for subset in subsets_to_run:
-        print(f"\n{'='*50}\n  Running subset: {subset}\n{'='*50}")
+        print(f"\n{'=' * 50}\n  Running subset: {subset}\n{'=' * 50}")
         results, features, labels, valid_notes, audio_types = run_subset(subset, SVM, filter_config)
         all_results[subset] = results
+
+        # 👉 F1 pro Subset
+        f1 = results['overall']['f1']
+        print(f"[F1] {subset}: {f1:.4f}")
 
         plot_confusion_matrix(results, subset_label=subset)
 
         if args.permutation:
             run_permutation(SVM, features, labels, valid_notes, audio_types)
+
+    # 👉 Mean F1 über Subsets
+    if len(all_results) > 1:
+        f1_scores = [res['overall']['f1'] for res in all_results.values()]
+        mean_f1 = np.mean(f1_scores)
+
+        print("\n" + "=" * 50)
+        print(f"[F1] Mean over subsets: {mean_f1:.4f}")
+        print("=" * 50)
 
     # Combined LaTeX plot when both subsets were evaluated
     if args.subset == "both" and "solo" in all_results and "comp" in all_results:
