@@ -18,9 +18,11 @@ from gse.src.utils.Track_dataclass import filter_analysis
 
 
 # ── Config ────────────────────────────────────────────────────────────────────
+_DIR = os.path.dirname(os.path.abspath(__file__))
+
 SUBSET_CONFIGS = {
-    'solo': 'configs/config_tes1t_solo.ini',
-    'comp': 'configs/config_test_comp.ini',
+    'solo': os.path.join(_DIR, 'configs', 'config_test_solo.ini'),
+    'comp': os.path.join(_DIR, 'configs', 'config_test_comp.ini'),
 }
 
 STRING_NAMES = ['E2', 'A2', 'D3', 'G3', 'B3', 'E4']
@@ -323,7 +325,7 @@ def run_subset(subset, SVM, filter_config):
     config_test.read(SUBSET_CONFIGS[subset])
 
     # --- Step 2: Calculate features ---
-    calculate_features.main(config_test)
+    # calculate_features.main(config_test)
 
     track_directory = config_test.get('paths', 'track_directory')
     audio_types     = [a.strip() for a in config_test.get('paths', 'audio_types').split(',')]
@@ -438,7 +440,7 @@ def main():
     active = [k for k, v in filter_config.items() if v]
     print(f"\n[Filter] Active: {active if active else 'none'}")
 
-    SVM = joblib.load("SVM_full_pre-DAGA.joblib")
+    SVM = joblib.load("svm_gridsearch_30pct.joblib")
 
     subsets_to_run = ["solo", "comp"] if args.subset == "both" else [args.subset]
     all_results    = {}

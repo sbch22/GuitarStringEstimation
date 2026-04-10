@@ -1,184 +1,219 @@
 import os
 import sys
-
-sys.path.append(os.path.abspath(''))
-import os
 import pickle
+import configparser
+from pathlib import Path
+from typing import Dict, List, Tuple
+
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import bartlett, levene, f_oneway
-from typing import Dict, List, Tuple
-from pathlib import Path
-import configparser
+
+sys.path.append(os.path.abspath(""))
+
+# ── Constants ────────────────────────────────────────────────────────────────
+STRING_LABELS = ["E2", "A2", "D3", "G3", "B3", "E4"]
+STRING_COLORS = ["skyblue", "red", "green", "orange", "purple", "brown"]
+NUM_STRINGS = 6
+BETA_UPPER_LIMIT = 2e-4
+NUM_BINS = 200
+PLOT_DPI = 800
+SAVE_DIR = Path("../../data/GuitarSet/noteData")
 
 
-def check_variance_homogeneity(string_values: List[np.ndarray],
-                               test_type: str = "levene") -> Tuple[str, float, float]:
-    if test_type == "bartlett":
-        stat, p_value = bartlett(*string_values)
-        test_name = "Bartlett's Test"
-    elif test_type == "levene":
-        stat, p_value = levene(*string_values)
-        test_name = "Levene's Test"
-    else:
-        raise ValueError("Invalid test_type. Choose either 'bartlett' or 'levene'.")
+# ── Statistical helpers ──────────────────────────────────────────────────────
+def check_variance_homogeneity(
+    groups: List[np.ndarray], test: str = "levene"
+) -> Tuple[str, float, float]:
+    """Run Bartlett's or Levene's test for homogeneity of variances."""
+    if test == "bartlett":
+        stat, p = bartlett(*groups)
+        return "Bartlett's Test", stat, p
+    if test == "levene":
+        stat, p = levene(*groups)
+        return "Levene's Test", stat, p
+    raise ValueError(f"Unknown test '{test}'. Use 'bartlett' or 'levene'.")
 
-    return test_name, stat, p_value
+
+def perform_welch_anova(groups: List[np.ndarray]) -> Tuple[float, float]:
+    """One-way ANOVA (Welch variant via scipy)."""
+    return f_oneway(*groups)
 
 
-def perform_welch_anova(string_values: List[np.ndarray]) -> Tuple[float, float]:
-    f_stat, p_value_anova = f_oneway(*string_values)
-    return f_stat, p_value_anova
+# ── Plotting ─────────────────────────────────────────────────────────────────
+def plot_beta_distributions(
+    betas: Dict[int, List[float]],
+) -> List[np.ndarray]:
+    """Plot per-string and overlay histograms; return cleaned arrays."""
 
-def plot_beta_distributions(betas: Dict[int, List[float]]) -> List[np.ndarray]:
-    colors = ['skyblue', 'red', 'green', 'orange', 'purple', 'brown']
-    string_labels = ['E2', 'A2', 'D3', 'G3', 'B3', 'E4']
-    string_values = []
+    # Clean values per string
+    cleaned: Dict[int, np.ndarray] = {}
+    for idx in sorted(betas):
+        raw = np.asarray(betas[idx], dtype=float)
+        finite = raw[np.isfinite(raw)]
+        dropped = len(raw) - len(finite)
+        name = f"String {idx} ({STRING_LABELS[idx]})"
+        if dropped:
+            print(f"{name}: dropped {dropped} non-finite values")
+        print(f"{name}: {len(finite)} cases")
+        if finite.size:
+            cleaned[idx] = finite
 
-    # --- Pass 1: collect all valid values to define global bins ---
-    all_values = []
-    for string_index in sorted(betas.keys()):
-        values_raw = np.array(betas.get(string_index, []), dtype=float)
-        values = values_raw[np.isfinite(values_raw)]
-        all_values.append(values)
+    if not cleaned:
+        print("No valid beta values to plot.")
+        return []
 
-    global_min = min(v.min() for v in all_values if v.size > 0)
-    global_max = 2e-4
-    global_bins = np.linspace(global_min, global_max, 201)  # 200 bins, uniform width
-    bin_width = global_bins[1] - global_bins[0]
-    bin_centers = (global_bins[:-1] + global_bins[1:]) / 2
+    global_min = min(v.min() for v in cleaned.values())
+    bins = np.linspace(global_min, BETA_UPPER_LIMIT, NUM_BINS + 1)
+    bin_width = bins[1] - bins[0]
+    centers = (bins[:-1] + bins[1:]) / 2
 
-    # --- Pass 2: individual plots + collect string_values ---
-    for string_index, values in zip(sorted(betas.keys()), all_values):
-        string_name = f"String {string_index} ({string_labels[string_index]})"
+    # Per-string histograms
+    for idx, values in cleaned.items():
+        color = STRING_COLORS[idx % len(STRING_COLORS)]
+        label = f"String {idx} ({STRING_LABELS[idx]})"
 
-        dropped = len(np.array(betas.get(string_index, []), dtype=float)) - len(values)
-        if dropped > 0:
-            print(f"{string_name}: dropped {dropped} non-finite values")
-        print(f"{string_name}: {len(values)} cases")
-
-        if values.size == 0:
-            print(f"No valid values for {string_name}.")
-            continue
-
-        string_values.append(values)
-        color = colors[string_index % len(colors)]
-
-        hist_values, _ = np.histogram(values, bins=global_bins, density=False)
-        hist_values_rel = hist_values / np.sum(hist_values)
+        hist, _ = np.histogram(values, bins=bins)
+        rel_freq = hist / hist.sum()
 
         plt.figure(figsize=(8, 5))
-        plt.bar(bin_centers, hist_values_rel, width=bin_width, alpha=0.6,
-                color=color, edgecolor='none', label="Relative Frequency")
-        plt.title(f'Beta Distribution: {string_name} 3rdtaylor')
-        plt.xlabel('Beta')
-        plt.ylabel('Relative Frequency')
-        plt.xlim(global_min, global_max)
+        plt.bar(centers, rel_freq, width=bin_width, alpha=0.6,
+                color=color, edgecolor="none", label="Relative Frequency")
+        plt.title(f"Beta Distribution: {label}")
+        plt.xlabel("Beta")
+        plt.ylabel("Relative Frequency")
+        plt.xlim(global_min, BETA_UPPER_LIMIT)
         plt.legend()
         plt.tight_layout()
 
-    # --- Overlay plot ---
-    DPI = 800  # change to taste
-    # overlay plot
-    fig, ax = plt.subplots(figsize=(8, 5), dpi=DPI)
-    for i, (string_index, values) in enumerate(zip(sorted(betas.keys()), string_values)):
-        color = colors[string_index % len(colors)]
-        label = f"String {string_index} ({string_labels[string_index]})"
+    # Overlay plot (peak-normalised)
+    fig, ax = plt.subplots(figsize=(8, 5), dpi=PLOT_DPI)
+    for idx, values in cleaned.items():
+        color = STRING_COLORS[idx % len(STRING_COLORS)]
+        label = f"String {idx} ({STRING_LABELS[idx]})"
 
-        hist_values, _ = np.histogram(values, bins=global_bins, density=False)
-        hist_values_norm = hist_values / hist_values.max()  # peak-normalised → all reach 1.0
+        hist, _ = np.histogram(values, bins=bins)
+        normed = hist / hist.max()
 
-        ax.bar(bin_centers, hist_values_norm, width=bin_width,
-               alpha=0.4, color=color, edgecolor='none', label=label)
-        ax.plot(bin_centers, hist_values_norm, color=color, linewidth=1.2, alpha=0.85)
+        ax.bar(centers, normed, width=bin_width, alpha=0.4,
+               color=color, edgecolor="none", label=label)
+        ax.plot(centers, normed, color=color, linewidth=1.2, alpha=0.85)
 
-    ax.set_title('Beta – Normierte Wahrscheinlichkeitsdichtefunktionen')
-    ax.set_ylabel('Normalisierte Wahrscheinlichkeit')
-    ax.set_xlabel('Beta')
-    ax.set_xlim(global_min, global_max)
-    ax.legend(loc='upper right')
+    ax.set_title("Beta – Normierte Wahrscheinlichkeitsdichtefunktionen")
+    ax.set_xlabel("Beta")
+    ax.set_ylabel("Normalisierte Wahrscheinlichkeit")
+    ax.set_xlim(global_min, BETA_UPPER_LIMIT)
+    ax.legend(loc="upper right")
     fig.tight_layout()
     plt.show()
 
-    return string_values
+    return [cleaned[i] for i in sorted(cleaned)]
 
 
-def main(config):
-    track_directory = config.get('paths', 'track_directory')
-    audio_types_raw = config.get('paths', 'audio_types')
-    audio_types = [a.strip() for a in audio_types_raw.split(',')]
+# ── Beta collection ──────────────────────────────────────────────────────────
+def collect_betas(
+    track_directory: str,
+    audio_types: List[str],
+    note_filter: str = "solo",
+) -> Tuple[Dict[int, list], list, list]:
+    """Load pickled tracks and extract betas grouped by string index."""
 
-    # --- Step 2: Calculate features ---
-    # calculate_features.main(config)
-
-    # Collect all file paths
     filepaths = [
-        os.path.join(track_directory, filename)
-        for filename in os.listdir(track_directory)
-        if filename.endswith(".pkl")
-        if os.path.isfile(os.path.join(track_directory, filename))
-        and "solo" in filename
+        os.path.join(track_directory, f)
+        for f in os.listdir(track_directory)
+        if f.endswith(".pkl")
+        and os.path.isfile(os.path.join(track_directory, f))
+        and note_filter in f
     ]
-    # Initialize dictionary to collect betas by string index
-    betas_by_string = {i: [] for i in range(6)}
 
-
-    all_notes = []
-    all_betas = []
+    betas_by_string: Dict[int, list] = {i: [] for i in range(NUM_STRINGS)}
+    all_notes: list = []
+    all_betas: list = []
 
     for audio_type in audio_types:
         for filepath in filepaths:
-            with open(filepath, "rb") as f:
+            with open(filepath, "rb") as fh:
                 try:
-                    track = pickle.load(f)
+                    track = pickle.load(fh)
                 except EOFError:
                     continue
 
             all_notes.extend(track.valid_notes)
+
             for note in track.valid_notes:
                 if audio_type not in note.features:
                     continue
                 if note.features[audio_type].beta is None:
                     continue
-                string_index = note.attributes.string_index
+
+                idx = note.attributes.string_index
                 if note.origin == "single_note":
-                    string_index -= 1
+                    idx -= 1
 
-                betas_by_string[string_index].append(note.features[audio_type].beta0(note.attributes.fret))
-                all_betas.append(note.features[audio_type].beta0(note.attributes.fret))
+                beta = note.features[audio_type].beta0(note.attributes.fret)
+                betas_by_string[idx].append(beta)
+                all_betas.append(beta)
 
-    cleaned_betas_by_string = plot_beta_distributions(betas_by_string)
+    return betas_by_string, all_notes, all_betas
 
-    betas_by_string_ndarray = np.array(
-        [np.array(cleaned_betas_by_string[i]) for i in range(6)],
-        dtype=object
+
+# ── Save helper ──────────────────────────────────────────────────────────────
+def build_save_name(config_path: str) -> str:
+    """Derive a descriptive filename from the config path.
+
+    Example config path: 'configs/config_train_GuitarSet.ini'
+    Produces:            'betas_config_train_GuitarSet.npy'
+    """
+    stem = Path(config_path).stem          # e.g. "config_train_GuitarSet"
+    return f"betas_{stem}.npy"
+
+
+def save_betas(
+    cleaned: List[np.ndarray],
+    config_path: str,
+) -> Path:
+    """Save per-string beta arrays to SAVE_DIR with config indicator."""
+    SAVE_DIR.mkdir(parents=True, exist_ok=True)
+
+    arr = np.array(
+        [np.asarray(cleaned[i]) for i in range(len(cleaned))],
+        dtype=object,
+    )
+    out = SAVE_DIR / build_save_name(config_path)
+    np.save(out, arr)
+    print(f"Saved betas → {out}")
+    return out
+
+
+# ── Main ─────────────────────────────────────────────────────────────────────
+def main(config: configparser.ConfigParser, config_path: str) -> None:
+    track_directory = config.get("paths", "track_directory")
+    audio_types = [a.strip() for a in config.get("paths", "audio_types").split(",")]
+
+    betas_by_string, all_notes, all_betas = collect_betas(
+        track_directory, audio_types, note_filter=""
     )
 
-    p = Path(track_directory)
+    cleaned = plot_beta_distributions(betas_by_string)
+    save_betas(cleaned, config_path)
 
-    last_three = p.parts[-3:]
-    betas_savename = "betas_" + "_".join(last_three) + ".npy"
-    np.save(betas_savename, betas_by_string_ndarray)
+    print(f"\nTotal notes:          {len(all_notes)}")
+    print(f"Notes with beta:      {len(all_betas)}")
+    if all_notes:
+        print(f"Beta coverage:        {len(all_betas) / len(all_notes):.2%}")
 
+    # Statistical tests
+    if len(cleaned) > 1:
+        name, stat, p = check_variance_homogeneity(cleaned)
+        print(f"\n{name}: statistic = {stat:.3f}, p = {p:.3f}")
 
-    print(f"Number of notes total: {len(all_notes)}\n")
-    print(f"Ratio of notes with beta: {len(all_betas)/len(all_notes)}\n")
-
-
-
-    # Perform statistical tests if we have multiple strings with noteData
-    if len(cleaned_betas_by_string) > 1:
-        # Test for variance homogeneity
-        test_name, var_stat, var_p = check_variance_homogeneity(cleaned_betas_by_string)
-        print(f"{test_name}: Statistic = {var_stat:.3f}, p-value = {var_p:.3f}")
-
-        # Perform ANOVA -> vielleich Welch?
-        f_stat, p_value_anova = perform_welch_anova(cleaned_betas_by_string)
-        print(f"ANOVA - F-statistic: {f_stat:.3f}, p-value: {p_value_anova:.3f}")
+        f_stat, p_anova = perform_welch_anova(cleaned)
+        print(f"ANOVA:  F = {f_stat:.3f}, p = {p_anova:.3f}")
 
 
 if __name__ == "__main__":
-    config = configparser.ConfigParser()
-    config.read('configs/config_train_GuitarSet.ini')
+    CONFIG_PATH = "configs/config_train_GuitarSet.ini"
 
-    main(config)
+    config = configparser.ConfigParser()
+    config.read(CONFIG_PATH)
+    main(config, CONFIG_PATH)

@@ -28,7 +28,7 @@ def build_pipeline():
     return Pipeline([
         ("imputer", SimpleImputer(strategy="mean", add_indicator=True)),
         ("scaler",  StandardScaler()),
-        ("svm",     SVC(kernel="rbf", C=10, gamma=0.001, probability=True)),
+        ("svm",     SVC(kernel="rbf", C=100, gamma=0.001, probability=True)),
     ])
 
 
@@ -80,7 +80,7 @@ def nan_report(FX):
 
 def run_fixed(FX, labels, output_path=None):
     """
-    Mode 1 – Fixed hyperparameters (C=10, gamma=0.001, rbf).
+    Mode 1 – Fixed hyperparameters (C=100, gamma=0.001, rbf).
     Trains on the full dataset.
     """
     print(f"\n[Fixed] Training on all {len(labels)} samples...")
@@ -163,7 +163,7 @@ def main():
     config_train = ConfigParser()
     config_train.read("configs/config_train_GuitarSet.ini")
 
-    calculate_features.main(config_train)
+    # calculate_features.main(config_train)
 
     FX, labels, all_notes, sample_features = load_data(config_train)
     filter_analysis(all_notes)
