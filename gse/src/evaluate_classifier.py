@@ -27,7 +27,6 @@ SUBSET_CONFIGS = {
 
 STRING_NAMES = ['E2', 'A2', 'D3', 'G3', 'B3', 'E4']
 
-# Default: all filters active
 FILTER_CONFIG_DEFAULT = {
     "physical_range":   True,
     "centroid_penalty": True,
@@ -35,6 +34,14 @@ FILTER_CONFIG_DEFAULT = {
 }
 
 FILTER_CONFIG_OFF = {k: False for k in FILTER_CONFIG_DEFAULT}
+
+# Incremental filter stages for filter-importance experiment
+FILTER_STAGES = [
+    ("no filter",            {k: False for k in FILTER_CONFIG_DEFAULT}),
+    ("+ physical_range",     {"physical_range": True,  "centroid_penalty": False, "string_occupancy": False}),
+    ("+ centroid_penalty",   {"physical_range": True,  "centroid_penalty": True,  "string_occupancy": False}),
+    ("+ string_occupancy",   {"physical_range": True,  "centroid_penalty": True,  "string_occupancy": True}),
+]
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -129,11 +136,17 @@ def plausibility_filter(probabilities, notes, centroid_tracker, config=None):
 
 # ── Evaluation ────────────────────────────────────────────────────────────────
 def evaluate_classification(y_true, y_pred, string_labels=None):
+    """
+    Computes metrics over all notes (weighted average) and per string.
+    Weighted average: each string's metric is weighted by its support (note count),
+    so more frequent strings contribute proportionally more.
+    """
     y_true = np.array(y_true)
     y_pred = np.array(y_pred)
     if string_labels is None:
         string_labels = sorted(set(y_true) | set(y_pred))
 
+    # Overall: weighted average = each string weighted by its note count
     acc       = accuracy_score(y_true, y_pred)
     precision = precision_score(y_true, y_pred, average='weighted')
     recall    = recall_score(y_true, y_pred, average='weighted')
@@ -164,42 +177,68 @@ def evaluate_classification(y_true, y_pred, string_labels=None):
     }
 
 
+# ── Pretty printing ──────────────────────────────────────────────────────────
+def _format_filter_config(config):
+    """Return a human-readable string showing which filter stages are active."""
+    active  = [k for k, v in config.items() if v]
+    return ", ".join(active) if active else "none"
+
+
+def print_results_table(results, label="", filter_config=None):
+    """Print a clean per-string and overall table to the console."""
+    header = f"  Results: {label}" if label else "  Results"
+    print(f"\n{'─' * 60}")
+    print(header)
+    if filter_config is not None:
+        print(f"  Filter: {_format_filter_config(filter_config)}")
+    print(f"{'─' * 60}")
+    print(f"  {'String':<8} {'Precision':>10} {'Recall':>10} {'F1':>10}")
+    print(f"  {'─'*8} {'─'*10} {'─'*10} {'─'*10}")
+    for lbl in results['string_labels']:
+        m = results['per_string'][lbl]
+        print(f"  {m['name']:<8} {m['precision']:>10.4f} {m['recall']:>10.4f} {m['f1']:>10.4f}")
+    o = results['overall']
+    print(f"  {'─'*8} {'─'*10} {'─'*10} {'─'*10}")
+    print(f"  {'Overall':<8} {o['precision']:>10.4f} {o['recall']:>10.4f} {o['f1']:>10.4f}")
+    print(f"  {'Accuracy':<8} {o['accuracy']:>10.4f}")
+    print(f"{'─' * 60}")
+
+
+def print_total_table(results_solo, results_comp, filter_config=None):
+    """Print the arithmetic mean of solo and comp metrics."""
+    print(f"\n{'═' * 60}")
+    print(f"  Total (arithmetic mean of Solo & Comp)")
+    if filter_config is not None:
+        print(f"  Filter: {_format_filter_config(filter_config)}")
+    print(f"{'═' * 60}")
+    print(f"  {'String':<8} {'Precision':>10} {'Recall':>10} {'F1':>10}")
+    print(f"  {'─'*8} {'─'*10} {'─'*10} {'─'*10}")
+    for lbl in results_solo['string_labels']:
+        ms = results_solo['per_string'][lbl]
+        mc = results_comp['per_string'][lbl]
+        p = (ms['precision'] + mc['precision']) / 2
+        r = (ms['recall']    + mc['recall'])    / 2
+        f = (ms['f1']        + mc['f1'])        / 2
+        print(f"  {ms['name']:<8} {p:>10.4f} {r:>10.4f} {f:>10.4f}")
+    os_ = results_solo['overall']
+    oc  = results_comp['overall']
+    print(f"  {'─'*8} {'─'*10} {'─'*10} {'─'*10}")
+    print(f"  {'Overall':<8} {(os_['precision']+oc['precision'])/2:>10.4f} "
+          f"{(os_['recall']+oc['recall'])/2:>10.4f} "
+          f"{(os_['f1']+oc['f1'])/2:>10.4f}")
+    print(f"  {'Accuracy':<8} {(os_['accuracy']+oc['accuracy'])/2:>10.4f}")
+    print(f"{'═' * 60}")
+
+
 # ── Confusion matrix plots ────────────────────────────────────────────────────
-def plot_confusion_matrix(results, normalize=True, title='String Classification', subset_label=None):
-    """Single confusion matrix plot (standard matplotlib style)."""
-    cm         = results['confusion_matrix'].copy().astype(float)
-    labels     = results['string_names']
-    full_title = f"{title} ({subset_label})" if subset_label else title
-
-    if normalize:
-        cm  = cm / cm.sum(axis=1, keepdims=True)
-        fmt, vmax = '.2f', 1.0
-    else:
-        fmt, vmax = 'd', None
-
-    fig, ax = plt.subplots(figsize=(8, 6))
-    sns.heatmap(cm, annot=True, fmt=fmt, cmap='Blues',
-                xticklabels=labels, yticklabels=labels,
-                vmin=0, vmax=vmax, ax=ax)
-    ax.set_xlabel('Predicted string')
-    ax.set_ylabel('True string')
-    ax.set_title(full_title)
-    plt.tight_layout()
-    plt.show()
-
-
 def plot_combined_confusion_matrices(results_solo, results_comp, normalize=True, output_path=None):
     """
-    Plots Solo (top) and Comp (bottom) confusion matrices stacked vertically,
-    formatted for LaTeX inclusion: 3.52 in wide, Computer Modern serif font,
-    fontsize 7 pt, string labels only on both axes in horizontal orientation.
-    Requires a working LaTeX installation for text.usetex=True.
+    Solo (top) and Comp (bottom) confusion matrices stacked vertically.
+    Formatted for LaTeX: 3.52 in wide, Computer Modern serif, 7 pt.
     """
-    # LaTeX-style rc params (restore after)
     rc = {
         'text.usetex':        True,
         'font.family':        'serif',
-        # 'font.serif':         ['Computer Modern Roman'],
         'axes.labelsize':     10,
         'xtick.labelsize':    10,
         'ytick.labelsize':    10,
@@ -207,10 +246,7 @@ def plot_combined_confusion_matrices(results_solo, results_comp, normalize=True,
     }
 
     with matplotlib.rc_context(rc):
-        fig, axes = plt.subplots(
-            nrows=2, ncols=1,
-            figsize=(3.40, 3.40),   # width × ~1.75 for two stacked panels
-        )
+        fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(3.40, 3.40))
 
         for ax, results, title in zip(
             axes,
@@ -224,20 +260,16 @@ def plot_combined_confusion_matrices(results_solo, results_comp, normalize=True,
             else:
                 fmt, vmax = 'd', None
 
-            labels = results['string_names']   # ['E2', 'A2', 'D3', 'G3', 'B3', 'E4']
+            labels = results['string_names']
 
             sns.heatmap(
                 cm, annot=True, fmt=fmt, cmap='Blues',
                 xticklabels=labels, yticklabels=labels,
-                vmin=0, vmax=vmax,
-                ax=ax,
-                annot_kws={'size': 9},
-                cbar=False,
-                linewidths=0.5,
-                linecolor='lightgray',
+                vmin=0, vmax=vmax, ax=ax,
+                annot_kws={'size': 9}, cbar=False,
+                linewidths=0.5, linecolor='lightgray',
             )
 
-            # Horizontal tick labels on both axes
             ax.set_xticklabels(labels, rotation=0, ha='center')
             ax.set_yticklabels(labels, rotation=0, va='center')
             ax.tick_params(axis='both', which='both', length=0)
@@ -247,7 +279,7 @@ def plot_combined_confusion_matrices(results_solo, results_comp, normalize=True,
 
         if output_path:
             fig.savefig(output_path, bbox_inches='tight', dpi=300)
-            print(f"[Plot] Saved combined confusion matrix to: {output_path}")
+            print(f"\n[Plot] Saved combined confusion matrix → {output_path}")
         else:
             plt.show()
 
@@ -271,7 +303,7 @@ def get_feature_groups(sample_fv):
 
 
 def get_stat_groups(groups, measure_segments_with_k,
-                    stat_names=["median","mean","min","max","std","var","skewness","kurtosis","mode"]):
+                    stat_names=("median","mean","min","max","std","var","skewness","kurtosis","mode")):
     stat_groups = {name: [] for name in stat_names}
     for seg_name, k in measure_segments_with_k.items():
         stat_index_blocks = np.array(groups[seg_name]).reshape(len(stat_names), k)
@@ -295,9 +327,20 @@ def grouped_permutation_importance(model, X, y, groups, n_repeats=5, random_stat
     return results
 
 
+def print_importance_table(imp_dict, title=""):
+    """Print permutation importance as a clean table."""
+    print(f"\n  {title}")
+    print(f"  {'─'*50}")
+    print(f"  {'Feature':<30} {'Δ Accuracy':>12} {'± Std':>10}")
+    print(f"  {'─'*30} {'─'*12} {'─'*10}")
+    for name, res in sorted(imp_dict.items(), key=lambda x: -x[1]["mean"]):
+        print(f"  {name:<30} {res['mean']:>12.4f} {res['std']:>10.4f}")
+    print(f"  {'─'*50}")
+
+
 def run_permutation(SVM, all_features, all_labels, all_valid_notes, audio_types):
-    print("\n[Permutation] Running grouped permutation importance...")
-    FX_test    = np.stack(all_features)
+    """Run grouped permutation importance and return results dicts."""
+    FX_test     = np.stack(all_features)
     labels_test = np.array(all_labels)
 
     sample_fv      = all_valid_notes[0].features[audio_types[0]]
@@ -311,22 +354,31 @@ def run_permutation(SVM, all_features, all_labels, all_valid_notes, audio_types)
     seg_imp  = grouped_permutation_importance(SVM, FX_test, labels_test, feature_groups)
     stat_imp = grouped_permutation_importance(SVM, FX_test, labels_test, stat_groups)
 
-    print("\n── Segment importance ──")
-    for name, res in sorted(seg_imp.items(), key=lambda x: -x[1]["mean"]):
-        print(f"  {name:30s}  {res['mean']:.4f} ± {res['std']:.4f}")
+    return seg_imp, stat_imp
 
-    print("\n── Stat importance ──")
-    for name, res in sorted(stat_imp.items(), key=lambda x: -x[1]["mean"]):
-        print(f"  {name:30s}  {res['mean']:.4f} ± {res['std']:.4f}")
+
+def average_importance(imp_a, imp_b):
+    """Arithmetic mean of two importance dicts."""
+    merged = {}
+    all_keys = set(imp_a.keys()) | set(imp_b.keys())
+    for k in all_keys:
+        a = imp_a.get(k, {"mean": 0.0, "std": 0.0})
+        b = imp_b.get(k, {"mean": 0.0, "std": 0.0})
+        merged[k] = {
+            "mean": (a["mean"] + b["mean"]) / 2,
+            "std":  (a["std"]  + b["std"])  / 2,
+        }
+    return merged
 
 
 # ── Core evaluation run for one subset ───────────────────────────────────────
-def run_subset(subset, SVM, filter_config):
+def run_subset(subset, SVM, filter_config, recalculate_features=False):
     config_test = ConfigParser()
     config_test.read(SUBSET_CONFIGS[subset])
 
-    # --- Step 2: Calculate features ---
-    # calculate_features.main(config_test)
+    if recalculate_features:
+        print(f"  Calculating features for {subset} (this may take a while) ...")
+        calculate_features.main(config_test)
 
     track_directory = config_test.get('paths', 'track_directory')
     audio_types     = [a.strip() for a in config_test.get('paths', 'audio_types').split(',')]
@@ -348,7 +400,7 @@ def run_subset(subset, SVM, filter_config):
     all_notes, all_valid_notes = [], []
 
     for i, filepath in enumerate(filepaths, 1):
-        print(f"\n[{i}/{len(filepaths)}] [{subset}] Classification: {filepath}")
+        print(f"  [{i}/{len(filepaths)}] {os.path.basename(filepath)}")
 
         with open(filepath, "rb") as f:
             track = pickle.load(f)
@@ -388,98 +440,192 @@ def run_subset(subset, SVM, filter_config):
         string_labels=string_labels,
     )
 
-    print(results['overall'])
-    print(results['per_string'])
-
     return results, all_features, all_labels, all_valid_notes, audio_types
 
 
+# ── Experiment 1: Classification ──────────────────────────────────────────────
+def experiment_classification(SVM, recalc=False):
+    """
+    Classification with plausibility filter ON, on both solo and comp.
+    Prints per-string and overall metrics, generates combined PDF plot.
+    """
+    print("\n" + "=" * 60)
+    print("  EXPERIMENT: Classification (with plausibility filter)")
+    print("=" * 60)
+
+    all_results = {}
+    for subset in ("solo", "comp"):
+        print(f"\n  Processing {subset} ...")
+        results, *_ = run_subset(subset, SVM, FILTER_CONFIG_DEFAULT, recalculate_features=recalc)
+        recalc = False  # only calculate once per subset, already done
+        all_results[subset] = results
+        print_results_table(results, label=subset.capitalize(), filter_config=FILTER_CONFIG_DEFAULT)
+
+    print_total_table(all_results["solo"], all_results["comp"], filter_config=FILTER_CONFIG_DEFAULT)
+
+    print("\n  Generating combined confusion matrix PDF ...")
+    plot_combined_confusion_matrices(
+        all_results["solo"],
+        all_results["comp"],
+        output_path="confusion_matrix_combined.pdf",
+    )
+    print("\n  Done.")
+
+
+# ── Experiment 2: Feature Importance ──────────────────────────────────────────
+def experiment_feature_importance(SVM, recalc=False):
+    """
+    Plausibility filter OFF. Measures feature contributions via permutation
+    importance on solo and comp, then reports the arithmetic mean.
+    """
+    print("\n" + "=" * 60)
+    print("  EXPERIMENT: Feature Importance (no plausibility filter)")
+    print("=" * 60)
+
+    all_seg_imp  = {}
+    all_stat_imp = {}
+    all_results  = {}
+
+    for subset in ("solo", "comp"):
+        print(f"\n  Processing {subset} ...")
+        results, features, labels, valid_notes, audio_types = run_subset(
+            subset, SVM, FILTER_CONFIG_OFF, recalculate_features=recalc
+        )
+        recalc = False
+        all_results[subset] = results
+        print_results_table(results, label=subset.capitalize(), filter_config=FILTER_CONFIG_OFF)
+
+        print(f"\n  Running permutation importance for {subset} ...")
+        seg_imp, stat_imp = run_permutation(SVM, features, labels, valid_notes, audio_types)
+        all_seg_imp[subset]  = seg_imp
+        all_stat_imp[subset] = stat_imp
+
+        print_importance_table(seg_imp,  title=f"Segment Importance – {subset.capitalize()}")
+        print_importance_table(stat_imp, title=f"Stat Importance – {subset.capitalize()}")
+
+    # Total: arithmetic mean
+    print_total_table(all_results["solo"], all_results["comp"], filter_config=FILTER_CONFIG_OFF)
+
+    avg_seg  = average_importance(all_seg_imp["solo"],  all_seg_imp["comp"])
+    avg_stat = average_importance(all_stat_imp["solo"], all_stat_imp["comp"])
+
+    print_importance_table(avg_seg,  title="Segment Importance – Total (mean of Solo & Comp)")
+    print_importance_table(avg_stat, title="Stat Importance – Total (mean of Solo & Comp)")
+
+    print("\n  Done.")
+
+
+# ── Experiment 3: Plausibility Filter Importance ──────────────────────────────
+def experiment_filter_importance(SVM, recalc=False):
+    """
+    Evaluates incremental filter stages:
+      1) no filter
+      2) + physical_range
+      3) + centroid_penalty
+      4) + string_occupancy (full)
+    Reports F1 for each stage on solo, comp, and total.
+    """
+    print("\n" + "=" * 60)
+    print("  EXPERIMENT: Plausibility Filter Importance")
+    print("=" * 60)
+
+    # Collect F1 for summary table
+    summary = {subset: {} for subset in ("solo", "comp")}
+    first_run = True
+
+    for stage_name, stage_config in FILTER_STAGES:
+        active = [k for k, v in stage_config.items() if v]
+        print(f"\n{'─' * 60}")
+        print(f"  Filter stage: {stage_name}")
+        print(f"  Active:       {active if active else 'none'}")
+        print(f"{'─' * 60}")
+
+        stage_results = {}
+        for subset in ("solo", "comp"):
+            print(f"\n  Processing {subset} ...")
+            # Only recalculate features on the very first run
+            do_recalc = recalc and first_run
+            results, *_ = run_subset(subset, SVM, stage_config, recalculate_features=do_recalc)
+            first_run = False
+            stage_results[subset] = results
+            print_results_table(results, label=f"{subset.capitalize()} [{stage_name}]", filter_config=stage_config)
+            summary[subset][stage_name] = results['overall']['f1']
+
+        print_total_table(stage_results["solo"], stage_results["comp"], filter_config=stage_config)
+
+    # Summary table
+    print(f"\n{'═' * 60}")
+    print(f"  Summary: F1 per filter stage")
+    print(f"{'═' * 60}")
+    print(f"  {'Stage':<25} {'Solo':>8} {'Comp':>8} {'Total':>8}")
+    print(f"  {'─'*25} {'─'*8} {'─'*8} {'─'*8}")
+    for stage_name, _ in FILTER_STAGES:
+        f1_solo = summary["solo"][stage_name]
+        f1_comp = summary["comp"][stage_name]
+        f1_total = (f1_solo + f1_comp) / 2
+        print(f"  {stage_name:<25} {f1_solo:>8.4f} {f1_comp:>8.4f} {f1_total:>8.4f}")
+    print(f"{'═' * 60}")
+
+    print("\n  Done.")
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
+EXPERIMENTS = {
+    "classification":    experiment_classification,
+    "feature-importance": experiment_feature_importance,
+    "filter-importance":  experiment_filter_importance,
+}
+
+
 def main():
-    parser = argparse.ArgumentParser(description="SVM Evaluation – GuitarSet")
-    parser.add_argument(
-        "--subset",
-        choices=["solo", "comp", "both"],
-        default=None,
-        help="Test subset: 'solo', 'comp', or 'both' (also generates combined LaTeX plot).",
+    parser = argparse.ArgumentParser(
+        description="SVM Evaluation – GuitarSet",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+experiments:
+  classification       Classification with plausibility filter + PDF plot
+  feature-importance   Permutation feature importance (no filter)
+  filter-importance    Evaluate incremental plausibility filter stages
+        """,
     )
     parser.add_argument(
-        "--permutation",
-        action="store_true",
-        default=None,
-        help="Run grouped permutation importance after evaluation.",
+        "experiment",
+        nargs="?",
+        choices=list(EXPERIMENTS.keys()),
+        help="Experiment to run.",
     )
     parser.add_argument(
-        "--no-filter",
+        "--recalculate-features",
         action="store_true",
-        default=False,
-        help="Disable the plausibility filter entirely.",
+        default=None,
+        help="Recalculate features before evaluation (expensive, only needed once).",
     )
     args = parser.parse_args()
 
-    # Interactive: subset
-    if args.subset is None:
-        print("\nSelect test subset:")
-        print("  [1] solo")
-        print("  [2] comp")
-        print("  [3] both  (also generates combined LaTeX confusion matrix plot)")
+    # Interactive selection: experiment
+    if args.experiment is None:
+        print("\nSelect experiment:")
+        print("  [1] classification         – Classification with plausibility filter + PDF plot")
+        print("  [2] feature-importance     – Permutation feature importance (no filter)")
+        print("  [3] filter-importance      – Evaluate incremental plausibility filter stages")
         choice = input("\nEnter 1, 2, or 3: ").strip()
-        args.subset = {"1": "solo", "2": "comp", "3": "both"}.get(choice, "solo")
+        args.experiment = {
+            "1": "classification",
+            "2": "feature-importance",
+            "3": "filter-importance",
+        }.get(choice)
+        if args.experiment is None:
+            print("Invalid choice.")
+            sys.exit(1)
 
-    # Interactive: permutation
-    if args.permutation is None:
-        choice = input("\nRun permutation importance? [y/N]: ").strip().lower()
-        args.permutation = choice == "y"
+    # Interactive selection: recalculate features
+    if args.recalculate_features is None:
+        choice = input("\nRecalculate features? (expensive, only needed once) [y/N]: ").strip().lower()
+        args.recalculate_features = choice == "y"
 
-    # Interactive: plausibility filter
-    if not args.no_filter:
-        choice = input("\nEnable plausibility filter? [Y/n]: ").strip().lower()
-        filter_config = FILTER_CONFIG_OFF if choice == "n" else FILTER_CONFIG_DEFAULT
-    else:
-        filter_config = FILTER_CONFIG_OFF
-
-    active = [k for k, v in filter_config.items() if v]
-    print(f"\n[Filter] Active: {active if active else 'none'}")
-
-    SVM = joblib.load("svm_gridsearch_30pct.joblib")
-
-    subsets_to_run = ["solo", "comp"] if args.subset == "both" else [args.subset]
-    all_results    = {}
-
-    for subset in subsets_to_run:
-        print(f"\n{'=' * 50}\n  Running subset: {subset}\n{'=' * 50}")
-        results, features, labels, valid_notes, audio_types = run_subset(subset, SVM, filter_config)
-        all_results[subset] = results
-
-        # 👉 F1 pro Subset
-        f1 = results['overall']['f1']
-        print(f"[F1] {subset}: {f1:.4f}")
-
-        plot_confusion_matrix(results, subset_label=subset)
-
-        if args.permutation:
-            run_permutation(SVM, features, labels, valid_notes, audio_types)
-
-    # 👉 Mean F1 über Subsets
-    if len(all_results) > 1:
-        f1_scores = [res['overall']['f1'] for res in all_results.values()]
-        mean_f1 = np.mean(f1_scores)
-
-        print("\n" + "=" * 50)
-        print(f"[F1] Mean over subsets: {mean_f1:.4f}")
-        print("=" * 50)
-
-    # Combined LaTeX plot when both subsets were evaluated
-    if args.subset == "both" and "solo" in all_results and "comp" in all_results:
-        print("\n[Plot] Generating combined LaTeX confusion matrix...")
-        plot_combined_confusion_matrices(
-            all_results["solo"],
-            all_results["comp"],
-            output_path="confusion_matrix_combined.pdf",
-        )
-
-    print("\n\nSuccess! Classification done.")
-
+    SVM = joblib.load("svm_full.joblib")
+    EXPERIMENTS[args.experiment](SVM, recalc=args.recalculate_features)
+    print("\n\nSuccess!")
 
 if __name__ == "__main__":
     main()

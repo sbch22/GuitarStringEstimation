@@ -87,7 +87,7 @@ def run_fixed(FX, labels, output_path=None):
     model = build_pipeline()
     model.fit(FX, labels)
 
-    out = output_path or "svm_fixed.joblib"
+    out = output_path or "svm_full.joblib"
     joblib.dump(model, out)
     print(f"[Fixed] Model saved: {out}")
     return model
