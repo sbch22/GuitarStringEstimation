@@ -43,7 +43,8 @@ from configparser import ConfigParser
 import gse.src.utils.FeatureNote_dataclass as FeatureNote_dataclass
 sys.modules["utils.FeatureNote_dataclass"] = FeatureNote_dataclass
 
-
+from pathlib import Path
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 def load_model_checkpoint(args=None):
     parser = argparse.ArgumentParser(description="YourMT3")
@@ -156,6 +157,7 @@ def load_model_checkpoint(args=None):
                         help='debug mode (default=False). True or False')
     parser.add_argument('-tps', '--test-pitch-shift', type=int, default=None,
                         help='use pitch shift when testing. debug-purpose only. (default=None). semitone in int.')
+    parser.add_argument('--ckpt-path', type=str, default=None)
     args = parser.parse_args(args)
     # yapf: enable
     if torch.__version__ >= "1.13":
@@ -188,7 +190,18 @@ def load_model_checkpoint(args=None):
         eval_subtask_key=args.eval_subtask_key,
         write_output_dir=dir_info["lightning_dir"] if args.write_model_output or args.test_octave_shift else None
     ).to(device)
-    checkpoint = torch.load(dir_info["last_ckpt_path"], map_location=device)
+    if args.ckpt_path:
+        ckpt_path = Path(args.ckpt_path)
+    else:
+        rel_path = dir_info["last_ckpt_path"]
+        rel_path = rel_path.lstrip("../")
+
+        ckpt_path = PROJECT_ROOT / "amt" / rel_path
+
+    ckpt_path = ckpt_path.resolve()
+    print(f"Resolved checkpoint path: {ckpt_path}")
+    checkpoint = torch.load(ckpt_path, map_location=device)
+
     state_dict = checkpoint['state_dict']
     new_state_dict = {k: v for k, v in state_dict.items() if 'pitchshift' not in k}
 

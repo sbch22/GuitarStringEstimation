@@ -21,7 +21,7 @@ gse/noteData/
 gse/logs/**
 
 *.npy
-*.joblib
+#*.joblib
 
 
 *.pt
