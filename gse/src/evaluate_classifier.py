@@ -37,10 +37,11 @@ FILTER_CONFIG_OFF = {k: False for k in FILTER_CONFIG_DEFAULT}
 
 # Incremental filter stages for filter-importance experiment
 FILTER_STAGES = [
-    ("no filter",            {k: False for k in FILTER_CONFIG_DEFAULT}),
-    ("+ physical_range",     {"physical_range": True,  "centroid_penalty": False, "string_occupancy": False}),
-    ("+ centroid_penalty",   {"physical_range": True,  "centroid_penalty": True,  "string_occupancy": False}),
-    ("+ string_occupancy",   {"physical_range": True,  "centroid_penalty": True,  "string_occupancy": True}),
+    ("no filter",              {"physical_range": False, "centroid_penalty": False, "string_occupancy": False}),
+    ("only physical_range",    {"physical_range": True,  "centroid_penalty": False, "string_occupancy": False}),
+    ("only centroid_penalty",  {"physical_range": False, "centroid_penalty": True,  "string_occupancy": False}),
+    ("only string_occupancy",  {"physical_range": False, "centroid_penalty": False, "string_occupancy": True}),
+    ("all filters",            {"physical_range": True,  "centroid_penalty": True,  "string_occupancy": True}),
 ]
 
 
@@ -518,19 +519,18 @@ def experiment_feature_importance(SVM, recalc=False):
 # ── Experiment 3: Plausibility Filter Importance ──────────────────────────────
 def experiment_filter_importance(SVM, recalc=False):
     """
-    Evaluates incremental filter stages:
-      1) no filter
-      2) + physical_range
-      3) + centroid_penalty
-      4) + string_occupancy (full)
-    Reports F1 for each stage on solo, comp, and total.
+    Evaluates each filter in isolation, then all three combined:
+      baseline               – no filter
+      only physical_range    – importance = Δ F1 vs. baseline
+      only centroid_penalty  – importance = Δ F1 vs. baseline
+      only string_occupancy  – importance = Δ F1 vs. baseline
+      all filters            – overall importance = Δ F1 vs. baseline
     """
     print("\n" + "=" * 60)
     print("  EXPERIMENT: Plausibility Filter Importance")
     print("=" * 60)
 
-    # Collect F1 for summary table
-    summary = {subset: {} for subset in ("solo", "comp")}
+    summary   = {subset: {} for subset in ("solo", "comp")}
     first_run = True
 
     for stage_name, stage_config in FILTER_STAGES:
@@ -543,31 +543,60 @@ def experiment_filter_importance(SVM, recalc=False):
         stage_results = {}
         for subset in ("solo", "comp"):
             print(f"\n  Processing {subset} ...")
-            # Only recalculate features on the very first run
             do_recalc = recalc and first_run
             results, *_ = run_subset(subset, SVM, stage_config, recalculate_features=do_recalc)
             first_run = False
             stage_results[subset] = results
-            print_results_table(results, label=f"{subset.capitalize()} [{stage_name}]", filter_config=stage_config)
+            print_results_table(
+                results,
+                label=f"{subset.capitalize()} [{stage_name}]",
+                filter_config=stage_config,
+            )
             summary[subset][stage_name] = results['overall']['f1']
 
         print_total_table(stage_results["solo"], stage_results["comp"], filter_config=stage_config)
 
-    # Summary table
-    print(f"\n{'═' * 60}")
-    print(f"  Summary: F1 per filter stage")
-    print(f"{'═' * 60}")
-    print(f"  {'Stage':<25} {'Solo':>8} {'Comp':>8} {'Total':>8}")
-    print(f"  {'─'*25} {'─'*8} {'─'*8} {'─'*8}")
-    for stage_name, _ in FILTER_STAGES:
-        f1_solo = summary["solo"][stage_name]
-        f1_comp = summary["comp"][stage_name]
-        f1_total = (f1_solo + f1_comp) / 2
-        print(f"  {stage_name:<25} {f1_solo:>8.4f} {f1_comp:>8.4f} {f1_total:>8.4f}")
-    print(f"{'═' * 60}")
+    # ── Summary table with Importance (Δ F1 vs. baseline) ─────────────────
+    baseline_name = FILTER_STAGES[0][0]   # "no filter"
+    all_name      = FILTER_STAGES[-1][0]  # "all filters"
+    individual_stages = FILTER_STAGES[1:-1]  # the three isolated filters
+
+    print(f"\n{'═' * 70}")
+    print(f"  Summary: F1 and Importance (ΔF1 vs. baseline) per filter")
+    print(f"{'═' * 70}")
+    print(f"  {'Stage':<27} {'Solo':>7} {'Comp':>7} {'Total':>7}  {'Importance':>10}")
+    print(f"  {'─'*27} {'─'*7} {'─'*7} {'─'*7}  {'─'*10}")
+
+    # Baseline row (no importance delta)
+    f1s = summary["solo"][baseline_name]
+    f1c = summary["comp"][baseline_name]
+    f1t = (f1s + f1c) / 2
+    print(f"  {baseline_name:<27} {f1s:>7.4f} {f1c:>7.4f} {f1t:>7.4f}  {'(baseline)':>10}")
+
+    # Individual filter rows
+    baseline_solo  = summary["solo"][baseline_name]
+    baseline_comp  = summary["comp"][baseline_name]
+    baseline_total = (baseline_solo + baseline_comp) / 2
+
+    for stage_name, _ in individual_stages:
+        f1s   = summary["solo"][stage_name]
+        f1c   = summary["comp"][stage_name]
+        f1t   = (f1s + f1c) / 2
+        delta = f1t - baseline_total
+        sign  = "+" if delta >= 0 else ""
+        print(f"  {stage_name:<27} {f1s:>7.4f} {f1c:>7.4f} {f1t:>7.4f}  {sign}{delta:>9.4f}")
+
+    # All-filters row (overall importance)
+    f1s   = summary["solo"][all_name]
+    f1c   = summary["comp"][all_name]
+    f1t   = (f1s + f1c) / 2
+    delta = f1t - baseline_total
+    sign  = "+" if delta >= 0 else ""
+    print(f"  {'─'*27} {'─'*7} {'─'*7} {'─'*7}  {'─'*10}")
+    print(f"  {all_name:<27} {f1s:>7.4f} {f1c:>7.4f} {f1t:>7.4f}  {sign}{delta:>9.4f}  ← gesamt")
+    print(f"{'═' * 70}")
 
     print("\n  Done.")
-
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 EXPERIMENTS = {

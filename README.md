@@ -153,9 +153,3 @@ Contains miscellaneous scripts used for additional experiments.
 
 ---
 
-## Possible Improvements
-- Add example outputs or logs  
-- Provide a minimal end-to-end demo script  
-- Include evaluation metrics (accuracy, F1 score, etc.)  
-- Add a citation / BibTeX section if linked to a paper  
-- Pin dependency versions for reproducibility  
