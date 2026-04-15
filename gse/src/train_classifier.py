@@ -1,5 +1,6 @@
 import os
 import sys
+
 sys.path.append(os.path.abspath(''))
 
 import pickle
@@ -16,24 +17,28 @@ from configparser import ConfigParser
 from utils.Track_dataclass import filter_analysis
 from feature_extraction import calculate_features
 
-
 # ── Grid für GridSearch ──────────────────────────────────────────────────────
 PARAM_GRID = {
-    "svm__C":     [0.1, 1, 10, 100],
+    "svm__C": [0.1, 1, 10, 100],
     "svm__gamma": ["scale", "auto", 0.001, 0.01],
 }
+
 
 def build_pipeline():
     """SVM pipeline with fixed hyperparameters (C=10, gamma=0.001, rbf)."""
     return Pipeline([
         ("imputer", SimpleImputer(strategy="mean", add_indicator=True)),
-        ("scaler",  StandardScaler()),
-        ("svm",     SVC(kernel="rbf", C=100, gamma=0.001, probability=True)),
+        ("scaler", StandardScaler()),
+        ("svm", SVC(kernel="rbf", C=100, gamma=0.001, probability=True)),
     ])
 
 
 def load_data(config_train):
-    """Loads all feature vectors and labels from .pkl track files."""
+    """Loads all feature vectors and labels from .pkl track files.
+
+    Returns:
+        FX, labels, all_notes, solo_notes, comping_notes, sample_features
+    """
     track_directory = config_train.get("paths", "track_directory")
     audio_types_raw = config_train.get("paths", "audio_types")
     audio_types = [a.strip() for a in audio_types_raw.split(",")]
@@ -44,7 +49,8 @@ def load_data(config_train):
         if os.path.isfile(os.path.join(track_directory, fn)) and fn.endswith(".pkl")
     ]
 
-    all_feature_vectors, all_labels, all_notes = [], [], []
+    all_feature_vectors, all_labels = [], []
+    all_notes, solo_notes, comping_notes = [], [], []
     sample_features = None
 
     for i, filepath in enumerate(filepaths, 1):
@@ -52,8 +58,21 @@ def load_data(config_train):
         with open(filepath, "rb") as f:
             track = pickle.load(f)
 
+        # ── Solo / Comping anhand Dateiname erkennen ─────────────────────────
+        fn_lower = os.path.basename(filepath).lower()
+        if "solo" in fn_lower:
+            track_type = "solo"
+        elif "comp" in fn_lower:
+            track_type = "comping"
+        else:
+            track_type = None
+
         for note in track.notes:
             all_notes.append(note)
+            if track_type == "solo":
+                solo_notes.append(note)
+            elif track_type == "comping":
+                comping_notes.append(note)
 
         for audio_type in audio_types:
             for note in track.valid_notes:
@@ -67,9 +86,9 @@ def load_data(config_train):
                 if sample_features is None:
                     sample_features = note.features[audio_type]
 
-    FX     = np.stack(all_feature_vectors)
+    FX = np.stack(all_feature_vectors)
     labels = np.array(all_labels)
-    return FX, labels, all_notes, sample_features
+    return FX, labels, all_notes, solo_notes, comping_notes, sample_features
 
 
 def nan_report(FX):
@@ -92,6 +111,45 @@ def run_fixed(FX, labels, output_path=None):
     print(f"[Fixed] Model saved: {out}")
     return model
 
+from collections import defaultdict
+
+def subset_analysis(notes, audio_types, label=""):
+    model_notes = [n for n in notes if n.origin == "model"]
+    gt_notes    = [n for n in notes if n.origin == "gt"]
+    matched     = [n for n in model_notes if n.match]
+    valid       = [n for n in model_notes if n.valid]
+
+    print(f"\n{'='*60}\n  {label}\n{'='*60}")
+    print(f"  GT notes               : {len(gt_notes):>6}")
+    print(f"  Model notes (total)    : {len(model_notes):>6}")
+    print(f"  └─ matched to GT       : {len(matched):>6}")
+    print(f"  └─ valid (survived all): {len(valid):>6}")
+
+    # Breakdown nur für model-Noten, die invalid sind
+    breakdown = defaultdict(int)
+    for n in model_notes:
+        if n.valid:
+            continue
+        s = getattr(n, "filter_step", "unknown_step") or "unknown_step"
+        r = getattr(n, "filter_reason", None)
+        r = r.value if hasattr(r, "value") else str(r)
+        breakdown[(s, r)] += 1
+
+    if breakdown:
+        print("\n  Invalidated model notes by step + reason:")
+        for (s, r), c in sorted(breakdown.items(), key=lambda x: -x[1]):
+            print(f"    [{s}] {r}: {c}")
+
+    # Feature-Vektor-Verfügbarkeit pro Audio-Typ
+    print("\n  Notes with feature_vector (per audio_type):")
+    for at in audio_types:
+        has_feat = sum(1 for n in valid if at in n.features)
+        has_fv   = sum(1 for n in valid
+                       if at in n.features
+                       and n.features[at].feature_vector is not None)
+        print(f"    [{at}] has Features: {has_feat:>5}   "
+              f"has feature_vector: {has_fv:>5}   "
+              f"(of {len(valid)} valid)")
 
 def run_gridsearch(FX, labels, subset_frac=0.3, n_splits=5,
                    random_state=42, output_path=None):
@@ -99,8 +157,8 @@ def run_gridsearch(FX, labels, subset_frac=0.3, n_splits=5,
     Mode 2 – GridSearch on a random subset.
     Draws subset_frac % of data stratified, then runs GridSearchCV.
     """
-    print(f"\n[GridSearch] Sampling {subset_frac*100:.0f}% of data "
-          f"({int(len(labels)*subset_frac)} of {len(labels)} samples)...")
+    print(f"\n[GridSearch] Sampling {subset_frac * 100:.0f}% of data "
+          f"({int(len(labels) * subset_frac)} of {len(labels)} samples)...")
 
     FX_sub, _, labels_sub, _ = train_test_split(
         FX, labels,
@@ -109,7 +167,7 @@ def run_gridsearch(FX, labels, subset_frac=0.3, n_splits=5,
         random_state=random_state,
     )
 
-    cv   = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
     grid = GridSearchCV(
         build_pipeline(), PARAM_GRID,
         cv=cv, scoring="f1_macro", n_jobs=-1, verbose=2,
@@ -121,11 +179,10 @@ def run_gridsearch(FX, labels, subset_frac=0.3, n_splits=5,
     print(f"\n[GridSearch] Best params:    {grid.best_params_}")
     print(f"[GridSearch] Best f1_macro:  {grid.best_score_:.3f}")
 
-    out = output_path or f"svm_gridsearch_{int(subset_frac*100)}pct.joblib"
+    out = output_path or f"svm_gridsearch_{int(subset_frac * 100)}pct.joblib"
     joblib.dump(grid.best_estimator_, out)
     print(f"[GridSearch] Model saved: {out}")
     return grid.best_estimator_, grid.best_params_
-
 
 def main():
     parser = argparse.ArgumentParser(description="SVM Training – GuitarSet")
@@ -150,23 +207,49 @@ def main():
         default=None,
         help="Output path for the saved model (.joblib). Optional.",
     )
+    parser.add_argument(
+        "--calculate-features",
+        action="store_true",
+        default=None,
+        help="Run calculate_features.main() before loading data.",
+    )
     args = parser.parse_args()
 
-    # Interactive prompt if no mode was passed via CLI
+    config_train = ConfigParser()
+    config_train.read("configs/config_train_GuitarSet.ini")
+
+    # Interactive selection: calculate features
+    if args.calculate_features is None:
+        choice = input("\nCalculate features? (expensive, only needed once) [y/N]: ").strip().lower()
+        args.calculate_features = choice == "y"
+
+    if args.calculate_features:
+        print("[Features] Running feature extraction...")
+        calculate_features.main(config_train)
+        print("[Features] Feature extraction complete.")
+
+    # Interactive selection: mode
     if args.mode is None:
         print("\nSelect training mode:")
         print("  [1] fixed      – Fixed hyperparameters, trains on full dataset")
         print("  [2] gridsearch – GridSearch on a random subset")
         choice = input("\nEnter 1 or 2: ").strip()
-        args.mode = "fixed" if choice == "1" else "gridsearch"
+        args.mode = {
+            "1": "fixed",
+            "2": "gridsearch",
+        }.get(choice)
+        if args.mode is None:
+            print("Invalid choice.")
+            sys.exit(1)
 
-    config_train = ConfigParser()
-    config_train.read("configs/config_train_GuitarSet.ini")
+    FX, labels, all_notes, solo_notes, comping_notes, sample_features = load_data(config_train)
 
-    # calculate_features.main(config_train)
+    audio_types = [a.strip() for a in config_train.get("paths", "audio_types").split(",")]
 
-    FX, labels, all_notes, sample_features = load_data(config_train)
-    filter_analysis(all_notes)
+    subset_analysis(all_notes, audio_types, "ALL NOTES")
+    subset_analysis(solo_notes, audio_types, "SOLO")
+    subset_analysis(comping_notes, audio_types, "COMPING")
+
     nan_report(FX)
 
     if args.mode == "fixed":

@@ -127,18 +127,18 @@ def compute_metrics(tp, fp, fn):
 def main(subset):
     config_test = ConfigParser()
     if subset == 'comp':
-        config_test.read('configs/config_test_comp.ini')
+        config_test.read('../gse/src/configs/config_test_comp.ini')
     elif subset == 'solo':
-        config_test.read('configs/config_test_solo.ini')
+        config_test.read('../gse/src/configs/config_test_solo.ini')
 
     track_directory         = config_test.get('paths', 'track_directory')
+    track_directory = track_directory.replace('../', '', 1)
 
 
     """ Choose between standard output (/martin) and same model with YMT3 Onsets (/martin/YMT3_Onsets)"""
     # transcription_directory = '../data/GuitarSet/hjerrild_transcription/audio_mono-mic/martin/'
-    transcription_directory = '../data/GuitarSet/hjerrild_transcription/audio_mono-mic/martin/YMT3_Onsets/'
-    # transcription_directory = '../data/GuitarSet/hjerrild_transcription/audio_mono-mic/martin/YMT3_Onsets_and_f0/'
-    # transcription_directory = '../data/GuitarSet/hjerrild_transcription/audio_mono-mic/GuitarSet/'
+    # transcription_directory = '../data/GuitarSet/hjerrild_transcription/audio_mono-mic/martin/YMT3_Onsets/'
+    transcription_directory = '../data/GuitarSet/hjerrild_et_al_eval/hjerrild_transcription/audio_mono-mic/martin/YMT3_onsets_and_f0'    # transcription_directory = '../data/GuitarSet/hjerrild_transcription/audio_mono-mic/GuitarSet/'
 
 
 

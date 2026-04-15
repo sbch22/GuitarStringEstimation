@@ -15,6 +15,9 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 
 from gse.src.feature_extraction import calculate_features
 from gse.src.utils.Track_dataclass import filter_analysis
+from gse.src.utils.Track_dataclass import FilterReason  # oder wo dein Enum lebt
+
+GT_DEPENDENT_REASONS = {FilterReason.NO_MATCH}
 
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -50,6 +53,139 @@ def get_fret(midi_pitch, string_index):
     open_string_midi = {0: 40, 1: 45, 2: 50, 3: 55, 4: 59, 5: 64}
     return midi_pitch - open_string_midi[string_index]
 
+# ── Onset F1 (YMT3 + Pipeline) ───────────────────────────────────────────────
+def _match_onsets(ref_onsets, est_onsets, tolerance=0.05):
+    """Greedy nearest-neighbour matching. Returns (n_ref, n_est, n_matched)."""
+    ref = np.sort(np.asarray(ref_onsets, dtype=float))
+    est = np.sort(np.asarray(est_onsets, dtype=float))
+
+    matched_ref = np.zeros(len(ref), dtype=bool)
+    n_matched   = 0
+
+    for e in est:
+        if len(ref) == 0:
+            break
+        diffs = np.abs(ref - e)
+        diffs[matched_ref] = np.inf
+        j = int(np.argmin(diffs))
+        if diffs[j] <= tolerance:
+            matched_ref[j] = True
+            n_matched += 1
+
+    return len(ref), len(est), n_matched
+
+
+def _prf(n_ref, n_est, n_matched):
+    p = n_matched / n_est if n_est else 0.0
+    r = n_matched / n_ref if n_ref else 0.0
+    f = 2 * p * r / (p + r) if (p + r) else 0.0
+    return p, r, f
+
+
+def _pipeline_surviving(note):
+    """
+    True, wenn die Note die realistische Pipeline überlebt:
+      - entweder valid (hat alle Schritte überlebt)
+      - oder nur durch einen GT-abhängigen Filter invalidiert
+        (würde in Realität ohne GT also bleiben)
+    """
+    if note.valid:
+        return True
+    return note.filter_reason in GT_DEPENDENT_REASONS
+
+
+def compute_onset_f1(tracks, tolerance=0.05):
+    totals = {'ymt3':     {'ref': 0, 'est': 0, 'match': 0},
+              'pipeline': {'ref': 0, 'est': 0, 'match': 0}}
+    counts = {'gt': 0, 'model': 0, 'matched': 0,
+              'valid': 0, 'pipeline_est': 0}
+
+    for track in tracks:
+        gt_notes    = [n for n in track.notes if n.origin == "gt"]
+        model_notes = [n for n in track.notes if n.origin == "model"]
+        valid_notes = track.valid_notes
+        pipeline_notes = [n for n in model_notes if _pipeline_surviving(n)]
+
+        counts['gt']           += len(gt_notes)
+        counts['model']        += len(model_notes)
+        counts['matched']      += sum(1 for n in model_notes if n.match)
+        counts['valid']        += len(valid_notes)
+        counts['pipeline_est'] += len(pipeline_notes)
+
+        ref_onsets = [n.attributes.onset for n in gt_notes]
+
+        nr, ne, nm = _match_onsets(
+            ref_onsets,
+            [n.attributes.onset for n in model_notes],
+            tolerance,
+        )
+        totals['ymt3']['ref']   += nr
+        totals['ymt3']['est']   += ne
+        totals['ymt3']['match'] += nm
+
+        nr, ne, nm = _match_onsets(
+            ref_onsets,
+            [n.attributes.onset for n in pipeline_notes],
+            tolerance,
+        )
+        totals['pipeline']['ref']   += nr
+        totals['pipeline']['est']   += ne
+        totals['pipeline']['match'] += nm
+
+    out = {'tolerance': tolerance, 'counts': counts}
+    for key, c in totals.items():
+        p, r, f = _prf(c['ref'], c['est'], c['match'])
+        out[key] = {'precision': p, 'recall': r, 'f1': f,
+                    'n_ref': c['ref'], 'n_est': c['est'], 'n_matched': c['match']}
+    return out
+
+def print_combined_table(results_cls, onset, label=""):
+    tol_ms = int(onset['tolerance'] * 1000)
+    c      = onset['counts']
+
+    print(f"\n{'─' * 78}")
+    print(f"  Results: {label}   (onset tol = {tol_ms} ms)")
+    print(f"{'─' * 78}")
+    print(f"  Counts:  GT={c['gt']}   YMT3={c['model']}   "
+          f"matched(flag)={c['matched']}   "
+          f"pipeline_est={c['pipeline_est']}   "
+          f"valid(+string class)={c['valid']}")
+    print(f"  {'Stage':<36} {'Precision':>10} {'Recall':>10} {'F1':>10}")
+    print(f"  {'─'*36} {'─'*10} {'─'*10} {'─'*10}")
+
+    p = onset['pipeline']
+    print(f"  {'YMT3 + pipeline cleaning':<36} "
+          f"{p['precision']:>10.4f} {p['recall']:>10.4f} {p['f1']:>10.4f}")
+
+    o = results_cls['overall']
+    print(f"  {'String classification (overall)':<36} "
+          f"{o['precision']:>10.4f} {o['recall']:>10.4f} {o['f1']:>10.4f}")
+    print(f"  {'(string accuracy)':<36} {'':>10} {'':>10} {o['accuracy']:>10.4f}")
+    print(f"{'─' * 78}")
+
+
+def print_combined_total(results_solo, results_comp, onset_solo, onset_comp):
+    tol_ms = int(onset_solo['tolerance'] * 1000)
+    print(f"\n{'═' * 78}")
+    print(f"  Total (arithmetic mean of Solo & Comp, onset tol = {tol_ms} ms)")
+    print(f"{'═' * 78}")
+    print(f"  {'Stage':<36} {'Precision':>10} {'Recall':>10} {'F1':>10}")
+    print(f"  {'─'*36} {'─'*10} {'─'*10} {'─'*10}")
+
+    p = (onset_solo['pipeline']['precision'] + onset_comp['pipeline']['precision']) / 2
+    r = (onset_solo['pipeline']['recall']    + onset_comp['pipeline']['recall'])    / 2
+    f = (onset_solo['pipeline']['f1']        + onset_comp['pipeline']['f1'])        / 2
+    print(f"  {'YMT3 + pipeline cleaning':<36} {p:>10.4f} {r:>10.4f} {f:>10.4f}")
+
+    os_, oc = results_solo['overall'], results_comp['overall']
+    p = (os_['precision'] + oc['precision']) / 2
+    r = (os_['recall']    + oc['recall'])    / 2
+    f = (os_['f1']        + oc['f1'])        / 2
+    a = (os_['accuracy']  + oc['accuracy'])  / 2
+    print(f"  {'String classification (overall)':<36} "
+          f"{p:>10.4f} {r:>10.4f} {f:>10.4f}")
+    print(f"  {'(string accuracy)':<36} {'':>10} {'':>10} {a:>10.4f}")
+    print(f"{'═' * 78}")
 
 class FretboardCentroid:
     def __init__(self, window_size=5, max_hand_span=6):
@@ -399,6 +535,7 @@ def run_subset(subset, SVM, filter_config, recalculate_features=False):
 
     all_predictions, all_features, all_labels = [], [], []
     all_notes, all_valid_notes = [], []
+    all_tracks = []  # ← NEU
 
     for i, filepath in enumerate(filepaths, 1):
         print(f"  [{i}/{len(filepaths)}] {os.path.basename(filepath)}")
@@ -406,6 +543,7 @@ def run_subset(subset, SVM, filter_config, recalculate_features=False):
         with open(filepath, "rb") as f:
             track = pickle.load(f)
 
+        all_tracks.append(track)  # ← NEU
         centroid_tracker = FretboardCentroid()
 
         for note in track.notes:
@@ -435,39 +573,49 @@ def run_subset(subset, SVM, filter_config, recalculate_features=False):
     filter_analysis(all_notes)
 
     string_labels = [0, 1, 2, 3, 4, 5]
-    results       = evaluate_classification(
+    results = evaluate_classification(
         all_labels,
         np.argmax(all_predictions, axis=1),
         string_labels=string_labels,
     )
 
-    return results, all_features, all_labels, all_valid_notes, audio_types
+    onset_results = compute_onset_f1(all_tracks, tolerance=0.05)  # ← NEU
+
+    return results, all_features, all_labels, all_valid_notes, audio_types, onset_results
 
 
 # ── Experiment 1: Classification ──────────────────────────────────────────────
 def experiment_classification(SVM, recalc=False):
-    """
-    Classification with plausibility filter ON, on both solo and comp.
-    Prints per-string and overall metrics, generates combined PDF plot.
-    """
     print("\n" + "=" * 60)
     print("  EXPERIMENT: Classification (with plausibility filter)")
     print("=" * 60)
 
-    all_results = {}
+    all_results, all_onsets = {}, {}
     for subset in ("solo", "comp"):
         print(f"\n  Processing {subset} ...")
-        results, *_ = run_subset(subset, SVM, FILTER_CONFIG_DEFAULT, recalculate_features=recalc)
-        recalc = False  # only calculate once per subset, already done
+        results, *_ , onset_results = run_subset(
+            subset, SVM, FILTER_CONFIG_DEFAULT, recalculate_features=recalc
+        )
+        recalc = False
         all_results[subset] = results
-        print_results_table(results, label=subset.capitalize(), filter_config=FILTER_CONFIG_DEFAULT)
+        all_onsets[subset]  = onset_results
 
-    print_total_table(all_results["solo"], all_results["comp"], filter_config=FILTER_CONFIG_DEFAULT)
+        # per-String Details wie bisher
+        print_results_table(results, label=subset.capitalize(),
+                            filter_config=FILTER_CONFIG_DEFAULT)
+        # konsolidierte YMT3 + Pipeline + String-Zeile
+        pretty = "Test (Solo)" if subset == "solo" else "Comping"
+        print_combined_table(results, onset_results, label=pretty)
+
+    # Totals
+    print_total_table(all_results["solo"], all_results["comp"],
+                      filter_config=FILTER_CONFIG_DEFAULT)
+    print_combined_total(all_results["solo"], all_results["comp"],
+                         all_onsets["solo"], all_onsets["comp"])
 
     print("\n  Generating combined confusion matrix PDF ...")
     plot_combined_confusion_matrices(
-        all_results["solo"],
-        all_results["comp"],
+        all_results["solo"], all_results["comp"],
         output_path="confusion_matrix_combined.pdf",
     )
     print("\n  Done.")
@@ -489,7 +637,7 @@ def experiment_feature_importance(SVM, recalc=False):
 
     for subset in ("solo", "comp"):
         print(f"\n  Processing {subset} ...")
-        results, features, labels, valid_notes, audio_types = run_subset(
+        results, features, labels, valid_notes, audio_types, _ = run_subset(
             subset, SVM, FILTER_CONFIG_OFF, recalculate_features=recalc
         )
         recalc = False
