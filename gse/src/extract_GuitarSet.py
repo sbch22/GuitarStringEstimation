@@ -1,37 +1,48 @@
-import os
 import sys
-sys.path.append(os.path.abspath(''))
+from pathlib import Path
+
+# Resolve project root relative to this file and add to path — works regardless of CWD
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROJECT_ROOT))
+
 import jams
-import glob
+import csv
 from collections import defaultdict
+
 from gse.src.utils.FeatureNote_dataclass import FeatureNote, Attributes, Features
 from gse.src.utils.Track_dataclass import Track
-import pyfar as pf
-import csv
 
-def create_track_from_jam(jam_file: str, track_id: str) -> Track:
-    jam = jams.load(jam_file)
+# Resolve config directory relative to this file
+_SCRIPT_DIR = Path(__file__).resolve().parent
+
+
+def create_track_from_jam(jam_file: Path, track_id: str) -> Track:
+    """Convert JAMS file to Track object."""
+    jam = jams.load(str(jam_file))
     notes = []
+    contours = defaultdict(list)
 
-    contours = defaultdict(list)  # Speichert Pitch-Contour nach ihrem 'index'
-    # collect contours
+    # Collect pitch contours
     for ann in jam.annotations:
         if ann.namespace == "pitch_contour":
             for obs in ann.data:
                 if isinstance(obs.value, dict) and "frequency" in obs.value:
-                    index = obs.value.get("index", None)  # Falls kein Index vorhanden, bleibt es None
-                    contours[index].append((obs.time, obs.value["frequency"]))
+                    idx = obs.value.get("index")
+                    contours[idx].append((obs.time, obs.value["frequency"]))
 
-    # connect contour with midi note
+    # Map contours to MIDI notes
     for ann in jam.annotations:
         if ann.namespace == "note_midi":
             for obs in ann.data:
-                note_contour = []
-                for index, contour in contours.items():
-                    note_contour += [(t, f) for t, f in contour if obs.time <= t <= obs.time + obs.duration]
+                note_contour = [
+                    (t, f)
+                    for contour in contours.values()
+                    for t, f in contour
+                    if obs.time <= t <= obs.time + obs.duration
+                ]
 
-                noteMIDI = round(obs.value)
-                noteFREQ = (440 / 32) * (2 ** ((noteMIDI - 9) / 12))
+                midi = round(obs.value)
+                freq = (440 / 32) * (2 ** ((midi - 9) / 12))
 
                 attr = Attributes(
                     is_drum=False,
@@ -39,159 +50,134 @@ def create_track_from_jam(jam_file: str, track_id: str) -> Track:
                     onset=obs.time,
                     offset=obs.time + obs.duration,
                     velocity=1,
-                    midi_note= noteMIDI,
+                    midi_note=midi,
                     contour=note_contour,
-                    pitch=noteFREQ,  # convert to frequency
+                    pitch=freq,
                 )
 
-                notes.append(FeatureNote(
-                    attributes=attr,
-                    features=Features(),
-                    origin='gt',
-                    valid=True,
-                    dataset="GuitarSet",
-                ))
+                notes.append(
+                    FeatureNote(
+                        attributes=attr,
+                        features=Features(),
+                        origin="gt",
+                        valid=True,
+                        dataset="GuitarSet",
+                    )
+                )
 
     track = Track(
         name=track_id,
         notes=notes,
-        metadata={"duration_sec": jam.file_metadata.duration, "source": "GuitarSet"},
+        metadata={
+            "duration_sec": jam.file_metadata.duration,
+            "source": "GuitarSet",
+        },
     )
 
-    # Apply preprocessing steps:
+    # Post-processing
     track.notes = Track.sort_notes(track.notes)
     track.notes = Track.validate_notes(track.notes)
     track.notes = Track.trim_overlapping_notes(track.notes)
 
     return track
 
-def preprocess_dataset(data_dir, save_dir):
-    all_ann_files = glob.glob(os.path.join(data_dir, 'annotation/*.jams'), recursive=True)
-    assert len(all_ann_files) == 360
 
-    # load Senva train file list
-    with open('../../data/GuitarSet/GuitarStringSeparation-MF-NMF-NMFD-master/trainSet.csv', newline='') as csvfile:
-        train_filename_list = []
-        spamreader = csv.reader(csvfile)
-        for row in spamreader:
-            path_csv = row[:]
-            filename = path_csv.pop()
-            train_filename_list.append(filename)
+def load_csv_list(path: Path, add_solo: bool = False) -> list:
+    """Load filenames from CSV, optionally add solo versions."""
+    filenames = []
+    with path.open(newline="") as f:
+        reader = csv.reader(f)
+        for row in reader:
+            filename = row[-1]
+            filenames.append(filename)
+            if add_solo:
+                filenames.append(filename.replace("comp", "solo"))
+    return filenames
 
-            # also load solo file
-            filename_solo = filename.replace("comp", "solo")
-            train_filename_list.append(filename_solo)
 
-    # load Senva test file list
-    with open('../../data/GuitarSet/GuitarStringSeparation-MF-NMF-NMFD-master/testSet.csv', newline='') as csvfile:
-        test_filename_list_comp = []
-        test_filename_list_solo = []
-        spamreader = csv.reader(csvfile)
-        for row in spamreader:
-            path_csv = row[:]
-            filename = path_csv.pop()
-            test_filename_list_comp.append(filename)
+def build_audio_paths(base_name: str, data_dir: Path) -> dict:
+    """Create audio path dictionary."""
+    return {
+        "mono_mic":      str(data_dir / "audio_mono-mic"                / f"{base_name}_mic.wav"),
+        "hex_debleeded": str(data_dir / "audio_hex-pickup_debleeded"    / f"{base_name}_hex_cln.wav"),
+        "hex_mono_mix":  str(data_dir / "audio_mono-pickup_mix"         / f"{base_name}_mix.wav"),
+        "hex":           str(data_dir / "audio_hex-pickup_original"     / f"{base_name}_hex.wav"),
+    }
 
-            # also load solo file
-            filename_solo = filename.replace("comp", "solo")
-            test_filename_list_solo.append(filename_solo)
 
-            # remove data-leakage: remove from solo from train
-            if filename_solo in train_filename_list:
-                train_filename_list.remove(filename)
+def process_and_save(track_id: str, ann_path: Path, save_path: Path, data_dir: Path) -> Track:
+    """Create track, attach audio paths, and save."""
+    track = create_track_from_jam(ann_path, track_id)
+    track.audio_paths = build_audio_paths(track.name, data_dir)
 
-    # ── collect split info for CSV export ──────────────────────────────────
-    split_rows = []   # list of dicts: {split, subset, track_name, mono_mic_path}
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    track.save(str(save_path))
+    print(f"Saved: {save_path}")
 
-    for test_filename in test_filename_list_comp:
-        filebase = test_filename.split(".wav")[0]
-        guitarset_id = filebase.split("_hex")[0]
-        ann_filename = os.path.join(data_dir, 'annotation', guitarset_id + ".jams")
+    return track
 
-        track = create_track_from_jam(ann_filename, guitarset_id)
 
-        base_name = track.name
-        paths = {
-            "mono_mic": os.path.join(data_dir, "audio_mono-mic", f"{base_name}_mic.wav"),
-            "hex_debleeded": os.path.join(data_dir, "audio_hex-pickup_debleeded", f"{base_name}_hex_cln.wav"),
-            "hex_mono_mix": os.path.join(data_dir, "audio_mono-pickup_mix", f"{base_name}_mix.wav"),
-            "hex": os.path.join(data_dir, "audio_hex-pickup_original", f"{base_name}_hex.wav"),
-        }
-        track.audio_paths = paths
+def preprocess_dataset(data_dir: Path, save_dir: Path) -> None:
+    """Preprocess GuitarSet dataset and save tracks + split CSV."""
+    ann_files = list((data_dir / "annotation").glob("*.jams"))
+    assert len(ann_files) == 360, f"Expected 360 annotation files, found {len(ann_files)}"
 
-        track_filename = os.path.basename(ann_filename).replace('.jams', '_track.pkl')
-        save_path = os.path.join(save_dir, 'GuitarSet', 'test', 'comp', track_filename)
-        track.save(save_path)
-        print(f'Saved track object: {save_path}')
+    train_list = load_csv_list(_SCRIPT_DIR / "configs" / "trainSet.csv", add_solo=True)
+    test_comp  = load_csv_list(_SCRIPT_DIR / "configs" / "testSet.csv")
+    test_solo  = [f.replace("comp", "solo") for f in test_comp]
 
-        split_rows.append({"split": "test", "subset": "comp",
-                           "track_name": base_name, "mono_mic_path": paths["mono_mic"]})
+    # Remove leakage
+    for f in test_solo:
+        if f in train_list:
+            train_list.remove(f)
 
-    for test_filename in test_filename_list_solo:
-        filebase = test_filename.split(".wav")[0]
-        guitarset_id = filebase.split("_hex")[0]
-        ann_filename = os.path.join(data_dir, 'annotation', guitarset_id + ".jams")
+    split_rows = []
 
-        track = create_track_from_jam(ann_filename, guitarset_id)
+    def handle_split(file_list: list, split: str, subset: str | None = None) -> None:
+        for filename in file_list:
+            filebase  = Path(filename).stem          # strips .wav if present
+            track_id  = filebase.split("_hex")[0]
+            ann_path  = data_dir / "annotation" / f"{track_id}.jams"
 
-        base_name = track.name
-        paths = {
-            "mono_mic": os.path.join(data_dir, "audio_mono-mic", f"{base_name}_mic.wav"),
-            "hex_debleeded": os.path.join(data_dir, "audio_hex-pickup_debleeded", f"{base_name}_hex_cln.wav"),
-            "hex_mono_mix": os.path.join(data_dir, "audio_mono-pickup_mix", f"{base_name}_mix.wav"),
-            "hex": os.path.join(data_dir, "audio_hex-pickup_original", f"{base_name}_hex.wav"),
-        }
-        track.audio_paths = paths
+            track_filename = f"{track_id}_track.pkl"
+            save_path = (
+                save_dir / split / subset / track_filename
+                if subset
+                else save_dir / split / track_filename
+            )
 
-        track_filename = os.path.basename(ann_filename).replace('.jams', '_track.pkl')
-        save_path = os.path.join(save_dir, 'GuitarSet', 'test', 'solo', track_filename)
-        track.save(save_path)
-        print(f'Saved track object: {save_path}')
+            track = process_and_save(track_id, ann_path, save_path, data_dir)
 
-        split_rows.append({"split": "test", "subset": "solo",
-                           "track_name": base_name, "mono_mic_path": paths["mono_mic"]})
+            split_rows.append({
+                "split":         split,
+                "subset":        subset if subset else ("comp" if "comp" in track.name else "solo"),
+                "track_name":    track.name,
+                "mono_mic_path": track.audio_paths["mono_mic"],
+            })
 
-    for train_filename in train_filename_list:
-        filebase = train_filename.split(".wav")[0]
-        guitarset_id = filebase.split("_hex")[0]
-        ann_filename = os.path.join(data_dir, 'annotation', guitarset_id + ".jams")
+    # Process splits
+    handle_split(test_comp,  "test",  "comp")
+    handle_split(test_solo,  "test",  "solo")
+    handle_split(train_list, "train")
 
-        track = create_track_from_jam(ann_filename, guitarset_id)
+    # Save split CSV
+    split_csv = save_dir / "split.csv"
+    split_csv.parent.mkdir(parents=True, exist_ok=True)
 
-        base_name = track.name
-        paths = {
-            "mono_mic": os.path.join(data_dir, "audio_mono-mic", f"{base_name}_mic.wav"),
-            "hex_debleeded": os.path.join(data_dir, "audio_hex-pickup_debleeded", f"{base_name}_hex_cln.wav"),
-            "hex_mono_mix": os.path.join(data_dir, "audio_mono-pickup_mix", f"{base_name}_mix.wav"),
-            "hex": os.path.join(data_dir, "audio_hex-pickup_original", f"{base_name}_hex.wav"),
-        }
-        track.audio_paths = paths
-
-        track_filename = os.path.basename(ann_filename).replace('.jams', '_track.pkl')
-        save_path = os.path.join(save_dir, 'GuitarSet', 'train', track_filename)
-        track.save(save_path)
-        print(f'Saved track object: {save_path}')
-
-        subset = "comp" if "comp" in base_name else "solo"
-        split_rows.append({"split": "train", "subset": subset,
-                           "track_name": base_name, "mono_mic_path": paths["mono_mic"]})
-
-    # ── write split CSV ─────────────────────────────────────────────────────
-    split_csv_path = os.path.join(save_dir, 'GuitarSet', 'split.csv')
-    os.makedirs(os.path.dirname(split_csv_path), exist_ok=True)
-    with open(split_csv_path, 'w', newline='') as csvfile:
-        fieldnames = ["split", "subset", "track_name", "mono_mic_path"]
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+    with split_csv.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["split", "subset", "track_name", "mono_mic_path"])
         writer.writeheader()
         writer.writerows(split_rows)
-    print(f'Saved split CSV: {split_csv_path}')
 
-# Main
-def main():
-    data_dir = '../../data/GuitarSet/GuitarSet_raw'
-    save_dir = '../noteData/'
+    print(f"Saved split CSV: {split_csv}")
+
+
+def main() -> None:
+    """Entry point."""
+    data_dir = PROJECT_ROOT / "data" / "GuitarSet"
+    save_dir = PROJECT_ROOT / "data" / "GuitarSet" / "noteData"
     preprocess_dataset(data_dir, save_dir)
 
-# %%
+
 if __name__ == "__main__":
     main()

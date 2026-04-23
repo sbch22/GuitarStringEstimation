@@ -4,12 +4,11 @@ import numpy as np
 import math
 from enum import Enum
 
-
 @dataclass
 class Features:
-    beta: Optional[float] = None
+    beta: Optional[float] = None # per fret
     f0: Optional[float] = None
-    betas_measures: Optional[np.ndarray] = None
+    betas_measures: Optional[np.ndarray] = None # per fret
     valid_partials: Optional[np.ndarray] = None
     rel_partial_amplitudes: Optional[np.ndarray] = None
     amp_decay_coefficients: Optional[np.ndarray] = None
@@ -17,6 +16,13 @@ class Features:
     spectral_centroid: Optional[np.ndarray] = None
 
     feature_vector: Optional[np.ndarray] = None
+
+    def beta0(self, fret) -> float:
+        if self.beta is None or np.isnan(self.beta):
+            return np.nan
+        else:
+            beta0 = self.beta * 2 ** (-fret / 6)
+            return beta0
 
     def fill_feature_vector(self) -> None:
         segments = {
@@ -76,7 +82,7 @@ class FilterReason(Enum):
     NO_STRING = "no string found by model"
     MISMATCH_BETWEEN_STRINGS = "note assignment likely wring between strings due to bleed"
     NO_MATCH = "no matching note could be found between model output and ground truth"
-    # find_partials.py
+    # inharmonic_partial_tracking.py
     NO_NOTE_AUDIO = "no note audio found from onsets"
     NO_HARMONIC_AUDIO = "no harmonic audio after extraction"
     HARMONIC_AUDIO_TOO_SHORT = "harmonic audio too short"

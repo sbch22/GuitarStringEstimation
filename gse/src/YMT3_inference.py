@@ -1,21 +1,32 @@
 import os
 import sys
+from pathlib import Path
 from contextlib import contextmanager
 
+# ── Establish project root from this file's location, not the CWD ──────────
+# Assumes this file lives 3 levels below the project root, e.g.:
+#   <root>/gse/src/scripts/this_file.py  →  parents[2] == <root>/gse, parents[3] == <root>
+# Adjust the index if your directory depth differs.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
 @contextmanager
-def temporarily_add_to_syspath(path: str):
-    abs_path = os.path.abspath(path)
-    sys.path.insert(0, abs_path)
+def temporarily_add_to_syspath(path):
+    path_str = str(path)
+    sys.path.insert(0, path_str)
     try:
         yield
     finally:
-        sys.path.remove(abs_path)
+        sys.path.remove(path_str)
 
-# --- Imports that depend on amt ---
-current_file_dir = os.path.dirname(os.path.abspath(__file__))
-amt_src_path = os.path.join(current_file_dir, "../../amt/src")
+# Make the project root importable so `gse.src.*` resolves correctly
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-with temporarily_add_to_syspath(amt_src_path):
+# ── Imports that live inside amt/src ────────────────────────────────────────
+AMT_SRC = PROJECT_ROOT / "amt" / "src"
+
+with temporarily_add_to_syspath(AMT_SRC):
+    import model.init_train as _amt_init_train   # ← add this
     from model.init_train import initialize_trainer, update_config
     from utils.task_manager import TaskManager
     from config.vocabulary import drum_vocab_presets
@@ -25,9 +36,7 @@ with temporarily_add_to_syspath(amt_src_path):
     from utils.event2note import merge_zipped_note_events_and_ties_to_notes
     from model.ymt3 import YourMT3
 
-
-sys.path.append(os.path.abspath(''))
-
+# ── Regular imports ──────────────────────────────────────────────────────────
 from collections import Counter
 import argparse
 import torch
@@ -41,9 +50,9 @@ import pyfar as pf
 from collections import defaultdict
 from configparser import ConfigParser
 import gse.src.utils.FeatureNote_dataclass as FeatureNote_dataclass
+
+# Module alias so amt's internal `utils.*` code can resolve this if needed
 sys.modules["utils.FeatureNote_dataclass"] = FeatureNote_dataclass
-
-
 
 def load_model_checkpoint(args=None):
     parser = argparse.ArgumentParser(description="YourMT3")
@@ -156,13 +165,21 @@ def load_model_checkpoint(args=None):
                         help='debug mode (default=False). True or False')
     parser.add_argument('-tps', '--test-pitch-shift', type=int, default=None,
                         help='use pitch shift when testing. debug-purpose only. (default=None). semitone in int.')
+    parser.add_argument('--ckpt-path', type=str, default=None)
     args = parser.parse_args(args)
-    # yapf: enable
+
     if torch.__version__ >= "1.13":
         torch.set_float32_matmul_precision("high")
     args.epochs = None
 
-    # Initialize and update config
+    # ── Patch the amt config to point at the new checkpoint location ─────────
+    # initialize_trainer deepcopies default_shared_cfg, so this must happen
+    # before the call. Use an absolute path to avoid CWD-dependent breakage.
+    _amt_init_train.default_shared_cfg["WANDB"]["save_dir"] = str(
+        PROJECT_ROOT / "amt" / "logs"
+    )
+    # ─────────────────────────────────────────────────────────────────────────
+
     _, _, dir_info, shared_cfg = initialize_trainer(args, stage='test')
     shared_cfg, audio_cfg, model_cfg = update_config(args, shared_cfg, stage='test')
 
@@ -188,7 +205,15 @@ def load_model_checkpoint(args=None):
         eval_subtask_key=args.eval_subtask_key,
         write_output_dir=dir_info["lightning_dir"] if args.write_model_output or args.test_octave_shift else None
     ).to(device)
-    checkpoint = torch.load(dir_info["last_ckpt_path"], map_location=device)
+    if args.ckpt_path:
+        ckpt_path = Path(args.ckpt_path).resolve()
+    else:
+        ckpt_path = Path(dir_info["last_ckpt_path"]).resolve()
+
+    ckpt_path = ckpt_path.resolve()
+    print(f"Resolved checkpoint path: {ckpt_path}")
+    checkpoint = torch.load(ckpt_path, map_location=device)
+
     state_dict = checkpoint['state_dict']
     new_state_dict = {k: v for k, v in state_dict.items() if 'pitchshift' not in k}
 
@@ -265,59 +290,6 @@ def transcribe_notes(model, audio_info: Dict, audio_tensor: torch.Tensor, sample
 
     return final_notes
 
-
-def process_GOAT_track(track, model, audio_type):
-    audio_filepath = track.audio_paths[audio_type]
-    audio_signal = pf.io.read_audio(audio_filepath)
-
-    # strings_signal = track.audio.hex
-    sr = audio_signal.sampling_rate
-    audio_data = audio_signal.time
-
-    audio_tensor = torch.from_numpy(audio_data).float()
-    audio_info = {
-        'sample_rate': sr,
-        'bits_per_sample': 16,  # where do I get this from pyfar?
-        'num_channels': 1,
-        'num_frames': audio_data.shape[-1],
-        'duration': audio_data.shape[-1] / sr,
-        'encoding': 'pcm',
-    }
-    print(f"Audio info: {audio_info}")
-
-    model_string_notes = transcribe_notes(model, audio_info, audio_tensor, sr)
-
-    for note in model_string_notes:
-        # Create an Attributes object for this note
-        attr = Attributes(
-            midi_note=note.pitch,  # redundant but often useful for comparison
-            is_drum=note.is_drum,
-            program=note.program,
-            onset=note.onset,
-            offset=note.offset,
-            velocity=note.velocity,
-            pitch=round(440 * 2 ** ((note.pitch - 69) / 12), 3)
-        )
-
-        # Wrap it into a FeatureNote
-        fnote = FeatureNote(
-            origin='model',
-            attributes=attr,
-            valid=True
-        )
-
-        # Append to this track’s note list
-        track.notes.append(fnote)
-
-    track.match_notes_GOAT(track, delta=0.050)  # 50ms
-
-    for note in track.valid_notes:
-        note.what_fret()
-
-    filter_analysis(track.notes)
-    print("Next Track ...")
-
-
 def process_GuitarSet_track(track, model):
     # load audio
     filepath_hex_debeleed = track.audio_paths["hex_debleeded"]
@@ -377,6 +349,8 @@ def process_GuitarSet_track(track, model):
 
 
 def main(track_directory, audio_type):
+    track_directory = Path(track_directory)   # accept both str and Path
+
     # model config
     model_name = "YPTF+Single (noPS)"
     print(f"Running evaluation for model: {model_name}")
@@ -417,9 +391,6 @@ def main(track_directory, audio_type):
     model = load_model_checkpoint(args=args)
 
     file_counter = 0
-
-    files_to_analyze = 20
-
     # Process each audio file in the directory
     for filename in os.listdir(track_directory):
         # skip directories
@@ -435,11 +406,6 @@ def main(track_directory, audio_type):
         if "GuitarSet" in filepath:
             process_GuitarSet_track(track, model)
 
-        elif "GOAT" in filepath:
-            process_GOAT_track(track, model, audio_type)
-
-
-        # save_path = os.path.join(track_directory, 'dev', filename)
         save_path = os.path.join(track_directory, filename)
 
         track.save(save_path)
@@ -447,14 +413,8 @@ def main(track_directory, audio_type):
         file_counter += 1
         print(f"Processed file {file_counter}: {filename}")
 
-        # if file_counter >= files_to_analyze: break
-
 if __name__ == "__main__":
-    # TODO: choose which test and train sets to call the classification upon
-
-    main('../noteData/GuitarSet/train/', audio_type="hex_debleeded")
-    # main('../noteData/GuitarSet/test/solo/', audio_type="hex_debleeded")
-    # main('../noteData/GuitarSet/test/comp/', audio_type="hex_debleeded")
-
-    # main( track_directory='../noteData/GOAT/test/', audio_type="clean")
-    # main( track_directory='../noteData/GOAT/train/', audio_type="clean")
+    data_root = PROJECT_ROOT / "data" / "GuitarSet" / "noteData"
+    main(data_root / "train", audio_type="hex_debleeded")
+    main(data_root / "test" / "solo", audio_type="hex_debleeded")
+    main(data_root / "test" / "comp", audio_type="hex_debleeded")

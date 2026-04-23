@@ -182,7 +182,8 @@ def write_model_output_as_midi(notes: List[Note],
                          onset=note.onset,
                          offset=note.offset,
                          pitch=note.pitch,
-                         velocity=note.velocity))
+                         velocity=note.velocity,
+                         contour=None)) # TODO: check if okay?
 
     note_events = note2note_event(new_notes, return_activity=False)
     note_event2midi(note_events, output_file, output_inverse_vocab=output_inverse_vocab)
