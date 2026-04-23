@@ -53,7 +53,7 @@ def initialize_trainer(args: argparse.Namespace,
                                **shared_cfg['WANDB'])
 
     # check if any checkpoint exists
-    last_ckpt_path = os.path.join(lightning_dir, "checkpoints", checkpoint_name)
+    last_ckpt_path = os.path.join(lightning_dir,  "checkpoints", checkpoint_name)
 
     # print(last_ckpt_path)
 

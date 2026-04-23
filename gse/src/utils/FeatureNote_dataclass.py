@@ -4,9 +4,6 @@ import numpy as np
 import math
 from enum import Enum
 
-from numpy.lib.nanfunctions import nanmedian
-
-
 @dataclass
 class Features:
     beta: Optional[float] = None # per fret

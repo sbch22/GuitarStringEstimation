@@ -8,7 +8,6 @@ from typing import Dict, List, Tuple
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import bartlett, levene, f_oneway
-
 sys.path.append(os.path.abspath(""))
 
 # ── Constants ────────────────────────────────────────────────────────────────
@@ -18,8 +17,11 @@ NUM_STRINGS = 6
 BETA_UPPER_LIMIT = 2e-4
 NUM_BINS = 200
 PLOT_DPI = 800
-SAVE_DIR = Path("../../data/GuitarSet/noteData")
 
+
+SAVE_DIR = Path(__file__).resolve().parent / ".." / ".." / "data" / "GuitarSet" / "noteData"
+SAVE_DIR = SAVE_DIR.resolve()
+SAVE_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Statistical helpers ──────────────────────────────────────────────────────
 def check_variance_homogeneity(
@@ -212,8 +214,7 @@ def main(config: configparser.ConfigParser, config_path: str) -> None:
 
 
 if __name__ == "__main__":
-    CONFIG_PATH = "configs/config_train_GuitarSet.ini"
-
+    CONFIG_PATH = os.path.join("configs", "config_train_GuitarSet.ini")
     config = configparser.ConfigParser()
     config.read(CONFIG_PATH)
     main(config, CONFIG_PATH)
