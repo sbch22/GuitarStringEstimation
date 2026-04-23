@@ -154,9 +154,7 @@ If you use this code, please cite:
 @inproceedings{buechner2026guitarstring,
   title     = {Bestimmung gespielter Gitarrensaiten anhand von Audiofeatures basierend auf multipler Grundfrequenzsch{\"a}tzung},
   author    = {B{\"u}chner, Simon and Bereuter, Paul A. and Sontacchi, Alois},
-  booktitle = {Fortschritte der Akustik -- DAGA 2026},
   year      = {2026},
-  address   = {Graz, Austria}
 }
 ```
 
